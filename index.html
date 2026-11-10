@@ -100,6 +100,22 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
+        // Ältere Browser (z. B. Firefox auf Fire-Tablets) kennen roundRect noch nicht.
+        // Ohne diese Ergänzung bricht das Zeichnen der Knöpfe ab.
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, b, h, r) {
+                r = Array.isArray(r) ? r[0] : (r || 0);
+                r = Math.min(r, b / 2, h / 2);
+                this.moveTo(x + r, y);
+                this.arcTo(x + b, y, x + b, y + h, r);
+                this.arcTo(x + b, y + h, x, y + h, r);
+                this.arcTo(x, y + h, x, y, r);
+                this.arcTo(x, y, x + b, y, r);
+                this.closePath();
+                return this;
+            };
+        }
+
         // Logische Spielfeldgröße. Das Canvas wird intern mit der Pixeldichte
         // des Geräts gerendert, damit auf Handys/Tablets alles scharf ist.
         const W = 800;
