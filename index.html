@@ -47,7 +47,7 @@
             box-sizing: border-box;
         }
 
-        #tonKnopf {
+        .rundKnopf {
             position: absolute;
             top: 10px;
             left: 10px;
@@ -64,7 +64,8 @@
             cursor: pointer;
             -webkit-tap-highlight-color: transparent;
         }
-        #tonKnopf svg { width: 24px; height: 24px; }
+        .rundKnopf svg { width: 24px; height: 24px; }
+        #pauseKnopf { left: 58px; display: none; }
 
         /* BUG FIX 1: Nur auf echten Mobilgeräten (max-width: 768px) im
            Hochformat ausblenden. Vorher wurde das Spiel auch in einem
@@ -89,7 +90,10 @@
 
     <div id="gameContainer">
         <canvas id="gameCanvas" width="800" height="400"></canvas>
-        <button id="tonKnopf" aria-label="Ton umschalten"></button>
+        <button id="tonKnopf" class="rundKnopf" aria-label="Ton umschalten"></button>
+        <button id="pauseKnopf" class="rundKnopf" aria-label="Pause" title="Pause">
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+        </button>
     </div>
 
     <script>
@@ -128,7 +132,7 @@
         let absturzGrund = 'wolke';
         let spielRahmen = 0;
         
-        let zustand = 'intro'; 
+        let zustand = 'menue';   // menue, bestenliste, spiel, pause, gameover, sieg, tschuess
         let unverwundbarTimer = 0;
         
         // FIX 1: dt wird jetzt jeden Frame aus der echten Zeit berechnet,
@@ -195,6 +199,7 @@
 
             const effekte = {
                 flug:     n => ton(300, n, 0.12, 'sine', 0.07, 520),
+                klick:    n => ton(660, n, 0.06, 'triangle', 0.12),
                 stern:    n => { ton(988, n, 0.1, 'triangle', 0.2); ton(1319, n + 0.07, 0.2, 'triangle', 0.2); },
                 kraft:    n => [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => ton(f, n + i * 0.06, 0.2, 'square', 0.06)),
                 herz:     n => { ton(659, n, 0.15, 'triangle', 0.22); ton(880, n + 0.12, 0.3, 'triangle', 0.22); },
@@ -282,15 +287,52 @@
         tonKnopf.addEventListener('mousedown', tonKnopfGedrueckt);
         tonKnopfZeichnen();
 
-        // ===== REKORD =====
-        let rekord = { sterne: 0, bestzeit: null };
-        try {
-            const gespeichert = JSON.parse(localStorage.getItem('jg-rekord') || 'null');
-            if (gespeichert) rekord = Object.assign(rekord, gespeichert);
-        } catch (e) {}
+        // ===== BESTENLISTE =====
+        // Die 5 besten Läufe werden auf dem Gerät gespeichert.
+        const BESTENLISTE_GROESSE = 5;
+        let bestenliste = [];
+        try { bestenliste = JSON.parse(localStorage.getItem('jg-bestenliste') || '[]'); } catch (e) {}
+        if (!Array.isArray(bestenliste)) bestenliste = [];
+        // alten Einzel-Rekord aus der Vorversion übernehmen
+        if (bestenliste.length === 0) {
+            try {
+                const alt = JSON.parse(localStorage.getItem('jg-rekord') || 'null');
+                if (alt && alt.sterne > 0) {
+                    bestenliste.push({
+                        sterne: alt.sterne,
+                        level: Math.min(10, Math.floor(alt.sterne / 10) + 1),
+                        sieg: alt.bestzeit != null,
+                        zeit: alt.bestzeit != null ? alt.bestzeit : null,
+                        datum: null
+                    });
+                }
+            } catch (e) {}
+        }
         let neuerRekord = false;
-        function rekordSpeichern() {
-            try { localStorage.setItem('jg-rekord', JSON.stringify(rekord)); } catch (e) {}
+        let letzterPlatz = 0;
+
+        function sortiereBestenliste() {
+            bestenliste.sort((a, b) => {
+                if (b.sterne !== a.sterne) return b.sterne - a.sterne;
+                if (a.sieg && b.sieg) return a.zeit - b.zeit;   // schnellerer Sieg zuerst
+                return (b.datum || '').localeCompare(a.datum || '');
+            });
+        }
+
+        function inBestenlisteEintragen(sieg) {
+            neuerRekord = false;
+            letzterPlatz = 0;
+            if (score <= 0) return;
+            const bisherBester = bestenliste[0];
+            const eintrag = { sterne: score, level: level, sieg: sieg, zeit: spielZeit, datum: new Date().toISOString() };
+            bestenliste.push(eintrag);
+            sortiereBestenliste();
+            bestenliste = bestenliste.slice(0, BESTENLISTE_GROESSE);
+            letzterPlatz = bestenliste.indexOf(eintrag) + 1;
+            neuerRekord = letzterPlatz === 1 && (!bisherBester ||
+                eintrag.sterne > bisherBester.sterne ||
+                (sieg && (!bisherBester.sieg || eintrag.zeit < bisherBester.zeit)));
+            try { localStorage.setItem('jg-bestenliste', JSON.stringify(bestenliste)); } catch (e) {}
         }
 
         // ===== HERZEN =====
@@ -562,37 +604,159 @@
             }
         }
 
-        function steuerungAusloesen(e) {
-            if (e) {
-                if (e.cancelable) e.preventDefault();
+        // ===== KNÖPFE & STEUERUNG =====
+        // Knöpfe auf dem Spielfeld werden jedes Bild neu gezeichnet und
+        // hier gesammelt, damit ein Tippen dem richtigen Knopf zugeordnet wird.
+        let knoepfe = [];
+        let standbild = null;   // eingefrorenes Bild für den Pause-Bildschirm
+        const pauseKnopf = document.getElementById('pauseKnopf');
+
+        function zeichneKnopf(text, x, y, b, farbe, aktion, h) {
+            h = h || 52;
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+            ctx.beginPath();
+            ctx.roundRect(x, y + 4, b, h, 16);
+            ctx.fill();
+            ctx.fillStyle = farbe;
+            ctx.beginPath();
+            ctx.roundRect(x, y, b, h, 16);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fillStyle = '#3a2350';
+            ctx.font = 'bold 20px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x + b / 2, y + h / 2 + 1);
+            ctx.restore();
+            knoepfe.push({ x: x, y: y, b: b, h: h, aktion: aktion });
+        }
+
+        function konturText(text, x, y, schrift, fuellung, kontur, breite) {
+            ctx.save();
+            ctx.font = schrift;
+            ctx.textAlign = 'center';
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = breite || 6;
+            ctx.strokeStyle = kontur || '#6a2c8a';
+            ctx.strokeText(text, x, y);
+            ctx.fillStyle = fuellung || '#ffffff';
+            ctx.fillText(text, x, y);
+            ctx.restore();
+        }
+
+        function punktAusEreignis(e) {
+            let cx, cy;
+            if (e && e.touches && e.touches.length) {
+                cx = e.touches[0].clientX;
+                cy = e.touches[0].clientY;
+            } else if (e && e.clientX !== undefined) {
+                cx = e.clientX;
+                cy = e.clientY;
+            } else {
+                return null;
             }
-            
+            const r = canvas.getBoundingClientRect();
+            const rand = 4;   // Rahmen des Spielfelds
+            return {
+                x: (cx - r.left - rand) / (r.width - 2 * rand) * W,
+                y: (cy - r.top - rand) / (r.height - 2 * rand) * H
+            };
+        }
+
+        function spielStarten() {
+            resetSpiel();
+            zustand = 'spiel';
+            Klang.musikStart();
+        }
+
+        function pausieren() {
+            if (zustand !== 'spiel') return;
+            standbild = document.createElement('canvas');
+            standbild.width = canvas.width;
+            standbild.height = canvas.height;
+            standbild.getContext('2d').drawImage(canvas, 0, 0);
+            zustand = 'pause';
+            Klang.musikStopp();
+        }
+
+        function weiterSpielen() {
+            zustand = 'spiel';
+            Klang.musikStart();
+        }
+
+        function zumHauptmenue() {
+            // abgebrochenes Spiel zählt trotzdem für die Bestenliste
+            if (zustand === 'pause') inBestenlisteEintragen(false);
+            Klang.musikStopp();
+            zustand = 'menue';
+        }
+
+        function appBeenden() {
+            Klang.musikStopp();
+            zustand = 'tschuess';
+            // Browser erlauben das Schließen nur manchmal; sonst bleibt der Abschiedsbildschirm
+            try { window.close(); } catch (e) {}
+        }
+
+        function steuerungAusloesen(e) {
+            if (e && e.cancelable) e.preventDefault();
             Klang.start();
-            if (zustand === 'intro') {
-                resetSpiel();
-                zustand = 'spiel';
-                Klang.musikStart();
-            } else if (zustand === 'gameover' || zustand === 'sieg') {
-                if (performance.now() < eingabeGesperrtBis) return;
-                resetSpiel();
-                zustand = 'spiel';
-                Klang.musikStart();
-            } else if (zustand === 'spiel') {
+
+            if (zustand === 'spiel') {
                 einhorn.velocity = einhorn.jump;
                 Klang.spiele('flug');
+                return;
+            }
+
+            const p = punktAusEreignis(e);
+            if (!p) return;
+            for (const k of knoepfe) {
+                if (p.x >= k.x && p.x <= k.x + k.b && p.y >= k.y && p.y <= k.y + k.h) {
+                    Klang.spiele('klick');
+                    k.aktion();
+                    return;
+                }
             }
         }
+
+        function pauseGedrueckt(e) {
+            e.stopPropagation();
+            if (e.cancelable) e.preventDefault();
+            Klang.start();
+            Klang.spiele('klick');
+            pausieren();
+        }
+        pauseKnopf.addEventListener('touchstart', pauseGedrueckt, { passive: false });
+        pauseKnopf.addEventListener('mousedown', pauseGedrueckt);
+
+        // Wenn die App in den Hintergrund geht, automatisch pausieren
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) pausieren();
+        });
 
         window.onload = function() {
             window.addEventListener('mousedown', steuerungAusloesen, { passive: false });
             window.addEventListener('touchstart', steuerungAusloesen, { passive: false });
             window.addEventListener('keydown', function(e) {
+                const gesperrt = performance.now() < eingabeGesperrtBis;
                 if (e.code === 'Space') {
-                    steuerungAusloesen(e);
+                    e.preventDefault();
+                    Klang.start();
+                    if (zustand === 'spiel') steuerungAusloesen(null);
+                    else if (zustand === 'menue') spielStarten();
+                    else if (zustand === 'pause') weiterSpielen();
+                    else if ((zustand === 'gameover' || zustand === 'sieg') && !gesperrt) spielStarten();
+                } else if (e.code === 'Escape' || e.code === 'KeyP') {
+                    if (zustand === 'spiel') pausieren();
+                    else if (zustand === 'pause') weiterSpielen();
                 }
             });
             requestAnimationFrame(update);
         };
+
 
         // ===== JOHANNI =====
         // Reitet auf Glacier: dunkelblonde, mittellange Haare,
@@ -1302,17 +1466,7 @@
             zustand = neuerZustand;
             eingabeGesperrtBis = performance.now() + SPERRZEIT_MS;
             Klang.musikStopp();
-
-            neuerRekord = false;
-            if (score > rekord.sterne) {
-                rekord.sterne = score;
-                neuerRekord = true;
-            }
-            if (neuerZustand === 'sieg' && (rekord.bestzeit === null || spielZeit < rekord.bestzeit)) {
-                rekord.bestzeit = spielZeit;
-                neuerRekord = true;
-            }
-            rekordSpeichern();
+            inBestenlisteEintragen(neuerZustand === 'sieg');
 
             if (neuerZustand === 'sieg') Klang.spiele('sieg');
             else if (neuerRekord) Klang.spiele('rekord');
@@ -1341,55 +1495,194 @@
             return m + ':' + String(s).padStart(2, '0');
         }
 
-        function zeichneKnopf(text, y, farbe) {
-            ctx.fillStyle = farbe;
-            ctx.beginPath();
-            ctx.roundRect(W / 2 - 140, y, 280, 50, 14);
-            ctx.fill();
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            ctx.fillStyle = '#333333';
-            ctx.font = 'bold 18px Arial';
+        function zeichneErgebnisZeile(y) {
+            ctx.save();
             ctx.textAlign = 'center';
-            ctx.fillText(text, W / 2, y + 32);
-        }
-
-        function zeichneRekordZeile(y) {
-            ctx.textAlign = 'center';
-            ctx.font = 'bold 18px Arial';
-            if (neuerRekord && zustand !== 'intro') {
+            ctx.font = 'bold 19px Arial';
+            if (neuerRekord) {
                 ctx.fillStyle = Math.floor(spielRahmen / 15) % 2 === 0 ? '#ffe14d' : '#ffffff';
                 ctx.fillText('★ Neuer Rekord! ★', W / 2, y);
-            } else if (rekord.sterne > 0) {
+            } else if (letzterPlatz > 0) {
                 ctx.fillStyle = '#ffe9a8';
-                let text = 'Rekord: ' + rekord.sterne + ' Sterne';
-                if (rekord.bestzeit !== null) text += '   ·   Schnellster Sieg: ' + formatZeit(rekord.bestzeit);
-                ctx.fillText(text, W / 2, y);
+                ctx.fillText('Platz ' + letzterPlatz + ' in der Bestenliste!', W / 2, y);
+            } else if (bestenliste.length > 0) {
+                ctx.fillStyle = '#ffe9a8';
+                ctx.fillText('Rekord: ' + bestenliste[0].sterne + ' Sterne', W / 2, y);
+            }
+            ctx.restore();
+        }
+
+        function zeichneGrossesEinhorn(cx, cy, groesse) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.scale(groesse, groesse);
+            zeichnePixelEinhorn(-35, -25);
+            ctx.restore();
+        }
+
+        // ===== BILDSCHIRME =====
+        function zeichneHauptmenue() {
+            ctx.fillStyle = 'rgba(40, 15, 70, 0.22)';
+            ctx.fillRect(0, 0, W, H);
+
+            konturText('Die Abenteuer von', W / 2, 46, 'bold 24px Arial');
+            konturText('Johanni und Glacier', W / 2, 92, 'bold 42px Arial', '#ffffff', '#6a2c8a', 8);
+
+            // Glacier mit Johanni links, schwebt sanft
+            zeichneGrossesEinhorn(215, 228 + Math.sin(spielRahmen * 0.05) * 10, 2.3);
+
+            const kx = 465, kb = 280;
+            zeichneKnopf('Spiel beginnen', kx, 130, kb, '#ffdf00', spielStarten);
+            zeichneKnopf('Bestenliste', kx, 198, kb, '#8ee8f2', () => { zustand = 'bestenliste'; });
+            zeichneKnopf('Beenden', kx, 266, kb, '#ffb8dc', appBeenden);
+
+            if (bestenliste.length > 0) {
+                konturText('Rekord: ' + bestenliste[0].sterne + ' Sterne', kx + kb / 2, 350,
+                    'bold 18px Arial', '#ffe14d', '#6a2c8a', 5);
+            }
+            konturText('Tippen = fliegen  ·  Wolken und Drachen ausweichen  ·  3 Herzen',
+                W / 2, 388, 'bold 14px Arial', '#ffffff', '#6a2c8a', 4);
+        }
+
+        function zeichneBestenliste() {
+            ctx.fillStyle = 'rgba(40, 15, 70, 0.6)';
+            ctx.fillRect(0, 0, W, H);
+            konturText('★ Bestenliste ★', W / 2, 52, 'bold 34px Arial', '#ffe14d');
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+            ctx.beginPath();
+            ctx.roundRect(110, 70, 580, 230, 16);
+            ctx.fill();
+
+            const spalten = [150, 255, 365, 490, 625];
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#ffd6ef';
+            ['Platz', 'Sterne', 'Level', 'Ergebnis', 'Datum'].forEach((t, i) => ctx.fillText(t, spalten[i], 100));
+
+            if (bestenliste.length === 0) {
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '19px Arial';
+                ctx.fillText('Noch keine Einträge – flieg los und sammle Sterne!', W / 2, 190);
+            }
+
+            const medaillen = ['#ffd700', '#e3e3e3', '#e8a165'];
+            bestenliste.forEach((e, i) => {
+                const y = 138 + i * 33;
+                ctx.font = 'bold 19px Arial';
+                ctx.fillStyle = medaillen[i] || '#ffffff';
+                ctx.fillText((i < 3 ? '★ ' : '') + (i + 1) + '.', spalten[0], y);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(String(e.sterne), spalten[1], y);
+                ctx.font = '18px Arial';
+                ctx.fillText(String(e.level), spalten[2], y);
+                ctx.fillText(e.sieg ? 'Sieg in ' + formatZeit(e.zeit) : '–', spalten[3], y);
+                let datum = '–';
+                if (e.datum) {
+                    const d = new Date(e.datum);
+                    datum = String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
+                }
+                ctx.fillText(datum, spalten[4], y);
+            });
+
+            zeichneKnopf('Zurück', W / 2 - 120, 320, 240, '#ffdf00', () => { zustand = 'menue'; });
+        }
+
+        function zeichnePause() {
+            if (standbild) {
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.drawImage(standbild, 0, 0);
+                ctx.restore();
+            }
+            ctx.fillStyle = 'rgba(40, 15, 70, 0.55)';
+            ctx.fillRect(0, 0, W, H);
+            konturText('Pause', W / 2, 115, 'bold 46px Arial');
+            zeichneKnopf('Weiter fliegen', W / 2 - 140, 160, 280, '#ffdf00', weiterSpielen);
+            zeichneKnopf('Hauptmenü', W / 2 - 140, 228, 280, '#ffb8dc', zumHauptmenue);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '15px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Im Hauptmenü kommen deine Sterne trotzdem in die Bestenliste.', W / 2, 330);
+        }
+
+        function zeichneGameOver() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+            ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 34px Arial';
+            ctx.fillText(absturzGrund === 'drache' ? 'Oje, ein Drache hat euch erwischt!' : 'Oje, in eine Wolke geflogen!', W / 2, 110);
+            ctx.font = '20px Arial';
+            ctx.fillText('Glacier und Johanni müssen sich kurz ausruhen.', W / 2, 155);
+            ctx.fillText('Ihr hattet ' + score + ' Sterne und habt Level ' + level + ' erreicht!', W / 2, 185);
+            zeichneErgebnisZeile(225);
+
+            if (performance.now() >= eingabeGesperrtBis) {
+                zeichneKnopf('Nochmal fliegen!', W / 2 - 290, 262, 270, '#ffdf00', spielStarten);
+                zeichneKnopf('Hauptmenü', W / 2 + 20, 262, 270, '#ffb8dc', () => { zustand = 'menue'; });
             }
         }
 
+        function zeichneSieg() {
+            ctx.fillStyle = 'rgba(255, 105, 180, 0.88)';
+            ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 36px Arial';
+            ctx.fillText('Du hast es geschafft, Johanni!', W / 2, 100);
+            ctx.font = '19px Arial';
+            ctx.fillText('Mit 100 Sternen hast du den Himmel gerettet. Du bist eine Heldin!', W / 2, 145);
+            ctx.fillText('Deine Zeit: ' + formatZeit(spielZeit), W / 2, 178);
+            zeichneErgebnisZeile(220);
+
+            if (performance.now() >= eingabeGesperrtBis) {
+                zeichneKnopf('Nochmal spielen', W / 2 - 290, 262, 270, '#00ffcc', spielStarten);
+                zeichneKnopf('Hauptmenü', W / 2 + 20, 262, 270, '#ffdf00', () => { zustand = 'menue'; });
+            }
+        }
+
+        function zeichneTschuess() {
+            ctx.fillStyle = 'rgba(40, 15, 70, 0.45)';
+            ctx.fillRect(0, 0, W, H);
+            konturText('Bis bald, Johanni!', W / 2, 90, 'bold 40px Arial');
+            zeichneGrossesEinhorn(W / 2, 185, 2);
+            konturText('Du kannst die App jetzt schließen.', W / 2, 282, 'bold 18px Arial', '#ffffff', '#6a2c8a', 5);
+            zeichneKnopf('Zurück zum Menü', W / 2 - 130, 310, 260, '#ffdf00', () => { zustand = 'menue'; });
+        }
+
         function update(zeitstempel) {
-            // echte vergangene Zeit seit dem letzten Bild (max. 50 ms,
-            // damit nach einem Tab-Wechsel nichts durch die Gegend springt)
+            // echte vergangene Zeit seit dem letzten Bild (max. 50 ms)
             if (letzteZeit === null) letzteZeit = zeitstempel;
             dt = Math.min((zeitstempel - letzteZeit) / 1000, 0.05);
             letzteZeit = zeitstempel;
-
-            // Animationszähler läuft zeitbasiert (60 Einheiten pro Sekunde)
             spielRahmen += dt * 60;
+            knoepfe = [];
 
-            // Hintergrund scrollt im Spiel normal, im Intro gemächlich, sonst steht er
+            // Pause-Knopf nur während des Spiels zeigen
+            const pauseSichtbar = zustand === 'spiel' ? 'flex' : 'none';
+            if (pauseKnopf.style.display !== pauseSichtbar) pauseKnopf.style.display = pauseSichtbar;
+
+            if (zustand === 'pause') {
+                zeichnePause();
+                requestAnimationFrame(update);
+                return;
+            }
+
+            // Hintergrund scrollt im Spiel normal, in den Menüs gemächlich
             if (zustand === 'spiel') hintergrundZeit += dt * (1 + (level - 1) * 0.15);
-            else if (zustand === 'intro') hintergrundZeit += dt * 0.4;
+            else if (zustand === 'menue' || zustand === 'bestenliste' || zustand === 'tschuess') hintergrundZeit += dt * 0.4;
 
             // Welt läuft weich zur Tageszeit des aktuellen Levels
-            const zielWelt = zustand === 'intro' ? 0 : weltFuerLevel(level);
+            const imSpiel = zustand === 'spiel' || zustand === 'gameover' || zustand === 'sieg';
+            const zielWelt = imSpiel ? weltFuerLevel(level) : 0;
             if (weltAnzeige < zielWelt) weltAnzeige = Math.min(zielWelt, weltAnzeige + dt * 0.5);
             if (weltAnzeige > zielWelt) weltAnzeige = Math.max(zielWelt, weltAnzeige - dt * 2);
 
-            if (unverwundbarTimer > 0) unverwundbarTimer -= dt * 60;
-            if (schutzTimer > 0) schutzTimer -= dt;
+            if (zustand === 'spiel') {
+                if (unverwundbarTimer > 0) unverwundbarTimer -= dt * 60;
+                if (schutzTimer > 0) schutzTimer -= dt;
+            }
 
             zeichneHintergrund();
 
@@ -1545,60 +1838,11 @@
                 }
             }
 
-            if (zustand === 'intro') {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-                ctx.fillRect(0, 0, W, H);
-
-                ctx.fillStyle = '#ffffff';
-                ctx.textAlign = 'center';
-                ctx.font = 'bold 32px Arial';
-                ctx.fillText('Die Abenteuer von Johanni und Glacier', W / 2, 62);
-
-                ctx.font = '17px Arial';
-                ctx.fillText('Hilf Johanni, 100 Sterne zu sammeln und das Reich zu retten!', W / 2, 98);
-                ctx.fillText('Weiche Wolken und Drachen aus – du hast 3 Herzen.', W / 2, 122);
-                ctx.fillText('Blinkende Sterne geben dir Regenbogen-Kraft!', W / 2, 146);
-
-                einhorn.y = 192 + Math.sin(spielRahmen * 0.05) * 10;
-                zeichnePixelEinhorn(W / 2 - 35, einhorn.y);
-
-                zeichneKnopf('Klicken / Tippen zum Starten!', 275, '#ffdf00');
-                zeichneRekordZeile(360);
-            }
-
-            if (zustand === 'gameover') {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-                ctx.fillRect(0, 0, W, H);
-                ctx.fillStyle = '#ffffff';
-                ctx.textAlign = 'center';
-                ctx.font = 'bold 34px Arial';
-                ctx.fillText(absturzGrund === 'drache' ? 'Oje, ein Drache hat euch erwischt!' : 'Oje, in eine Wolke geflogen!', W / 2, 120);
-                ctx.font = '20px Arial';
-                ctx.fillText('Glacier und Johanni müssen sich kurz ausruhen.', W / 2, 165);
-                ctx.fillText('Ihr hattet ' + score + ' Sterne und habt Level ' + level + ' erreicht!', W / 2, 195);
-                zeichneRekordZeile(232);
-
-                if (performance.now() >= eingabeGesperrtBis) {
-                    zeichneKnopf('Nochmal fliegen!', 265, '#ffdf00');
-                }
-            }
-
-            if (zustand === 'sieg') {
-                ctx.fillStyle = 'rgba(255, 105, 180, 0.88)';
-                ctx.fillRect(0, 0, W, H);
-                ctx.fillStyle = '#ffffff';
-                ctx.textAlign = 'center';
-                ctx.font = 'bold 36px Arial';
-                ctx.fillText('Du hast es geschafft, Johanni!', W / 2, 110);
-                ctx.font = '19px Arial';
-                ctx.fillText('Mit 100 Sternen hast du den Himmel gerettet. Du bist eine Heldin!', W / 2, 155);
-                ctx.fillText('Deine Zeit: ' + formatZeit(spielZeit), W / 2, 188);
-                zeichneRekordZeile(225);
-
-                if (performance.now() >= eingabeGesperrtBis) {
-                    zeichneKnopf('Nochmal spielen', 265, '#00ffcc');
-                }
-            }
+            if (zustand === 'menue') zeichneHauptmenue();
+            else if (zustand === 'bestenliste') zeichneBestenliste();
+            else if (zustand === 'gameover') zeichneGameOver();
+            else if (zustand === 'sieg') zeichneSieg();
+            else if (zustand === 'tschuess') zeichneTschuess();
 
             requestAnimationFrame(update);
         }
