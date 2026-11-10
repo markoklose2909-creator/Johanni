@@ -1,8 +1,7 @@
 // Offline-Speicher für "Johanni und Glacier".
-// Das Spiel startet sofort aus dem Speicher; im Hintergrund wird geprüft,
-// ob es eine neue Version gibt. Die ist dann beim nächsten Start da.
-// Bei größeren Updates die Versionsnummer erhöhen.
-const CACHE = 'glacier-v1';
+// Mit Internet wird das Spiel immer frisch vom Server geladen (Updates sind
+// sofort da). Ohne Internet startet es aus dem Speicher.
+const CACHE = 'glacier-v2';
 const DATEIEN = [
   './',
   './index.html',
@@ -13,7 +12,11 @@ const DATEIEN = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(DATEIEN)));
+  event.waitUntil(
+    caches.open(CACHE).then(cache =>
+      cache.addAll(DATEIEN.map(url => new Request(url, { cache: 'reload' })))
+    )
+  );
   self.skipWaiting();
 });
 
@@ -27,17 +30,40 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return;
-  event.respondWith(
-    caches.open(CACHE).then(async cache => {
-      const gespeichert = await cache.match(event.request, { ignoreSearch: true });
-      const ausNetz = fetch(event.request)
+  const anfrage = event.request;
+  if (anfrage.method !== 'GET') return;
+
+  const istSeite = anfrage.mode === 'navigate' || anfrage.url.endsWith('.html');
+
+  if (istSeite) {
+    // Spiel selbst: erst Server (am Browser-Zwischenspeicher vorbei), sonst Speicher
+    event.respondWith(
+      fetch(anfrage, { cache: 'no-cache' })
         .then(antwort => {
-          if (antwort && antwort.ok) cache.put(event.request, antwort.clone());
+          if (antwort && antwort.ok) {
+            const kopie = antwort.clone();
+            caches.open(CACHE).then(cache => cache.put(anfrage, kopie));
+          }
           return antwort;
         })
-        .catch(() => gespeichert);
-      return gespeichert || ausNetz;
-    })
+        .catch(() =>
+          caches.match(anfrage, { ignoreSearch: true })
+            .then(treffer => treffer || caches.match('./index.html'))
+        )
+    );
+    return;
+  }
+
+  // Bilder & Co.: aus dem Speicher, sonst vom Server
+  event.respondWith(
+    caches.match(anfrage, { ignoreSearch: true }).then(treffer =>
+      treffer || fetch(anfrage).then(antwort => {
+        if (antwort && antwort.ok) {
+          const kopie = antwort.clone();
+          caches.open(CACHE).then(cache => cache.put(anfrage, kopie));
+        }
+        return antwort;
+      })
+    )
   );
 });
