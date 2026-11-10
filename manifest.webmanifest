@@ -1,0 +1,16 @@
+{
+  "name": "Die Abenteuer von Johanni und Glacier",
+  "short_name": "Glacier",
+  "description": "Fliege mit Johanni und Glacier durch den Himmel und sammle 100 Sterne.",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#5fb8f5",
+  "theme_color": "#ff69b4",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

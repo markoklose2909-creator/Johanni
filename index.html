@@ -1,0 +1,1613 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Die Abenteuer von Johanni und Glacier</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="theme-color" content="#ff69b4">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Glacier">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f0f8ff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            overscroll-behavior: none; 
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 800px;
+            height: 400px;
+            max-width: 95vw;
+            max-height: 90vh;
+            aspect-ratio: 2 / 1;
+            cursor: pointer;
+        }
+
+        #gameCanvas {
+            border: 4px solid #ff69b4;
+            /* BUG FIX 2: Hintergrund wird jetzt per Canvas-Code gezeichnet,
+               daher kein CSS-Hintergrund mehr nötig */
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+            width: 100%;
+            height: 100%;
+            display: block;
+            box-sizing: border-box;
+        }
+
+        #tonKnopf {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid #ffffff;
+            background: rgba(106, 44, 138, 0.55);
+            color: #ffffff;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #tonKnopf svg { width: 24px; height: 24px; }
+
+        /* BUG FIX 1: Nur auf echten Mobilgeräten (max-width: 768px) im
+           Hochformat ausblenden. Vorher wurde das Spiel auch in einem
+           schmalen Chrome-Desktop-Fenster versteckt! */
+        @media (orientation: portrait) and (max-width: 768px) {
+            #gameContainer {
+                display: none;
+            }
+            body::after {
+                content: "Bitte drehe dein Handy ins Querformat, um mit Glacier zu fliegen!";
+                position: absolute;
+                font-size: 20px;
+                font-weight: bold;
+                color: #ff69b4;
+                text-align: center;
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        <button id="tonKnopf" aria-label="Ton umschalten"></button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Logische Spielfeldgröße. Das Canvas wird intern mit der Pixeldichte
+        // des Geräts gerendert, damit auf Handys/Tablets alles scharf ist.
+        const W = 800;
+        const H = 400;
+        const DPR = Math.min(window.devicePixelRatio || 1, 3);
+        canvas.width = W * DPR;
+        canvas.height = H * DPR;
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+        // Zeit für die Hintergrund-Animation (Parallax)
+        let hintergrundZeit = 0;
+
+        const einhorn = {
+            x: 70,
+            y: 150,
+            width: 70,
+            height: 50,
+            gravity: 1200,  
+            velocity: 0,
+            jump: -380      
+        };
+
+        let score = 0;
+        let level = 1;
+        let sterne = [];
+        let hindernisse = [];
+        let drachen = [];
+        let drachenTimer = 0;
+        let levelHinweis = { text: '', zeit: 0 };
+        let absturzGrund = 'wolke';
+        let spielRahmen = 0;
+        
+        let zustand = 'intro'; 
+        let unverwundbarTimer = 0;
+        
+        // FIX 1: dt wird jetzt jeden Frame aus der echten Zeit berechnet,
+        // damit das Spiel auf 60-, 90- und 120-Hz-Displays gleich schnell läuft.
+        let dt = 1 / 60;
+        let letzteZeit = null;
+
+        // FIX 3: Nach Game Over / Sieg werden Klicks kurz ignoriert,
+        // damit der Ergebnis-Bildschirm nicht sofort weggetippt wird.
+        const SPERRZEIT_MS = 1000;
+        let eingabeGesperrtBis = 0;
+
+        let sternErzeugungsTimer = 0;
+        let hindernisErzeugungsTimer = 0;
+
+        // ===== TON & MUSIK =====
+        // Alle Töne werden direkt im Browser erzeugt (Web Audio), ohne Sounddateien.
+        // Ton-Knopf schaltet um: alles an -> nur Effekte -> stumm.
+        const Klang = (() => {
+            let ac = null, sfx = null, musik = null;
+            let modus = 0;
+            try { modus = parseInt(localStorage.getItem('jg-ton') || '0', 10) || 0; } catch (e) {}
+
+            const midi = m => 440 * Math.pow(2, (m - 69) / 12);
+
+            function start() {
+                if (ac) {
+                    if (ac.state === 'suspended') ac.resume();
+                    return;
+                }
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (!AC) return;
+                ac = new AC();
+                const master = ac.createGain();
+                master.gain.value = 0.6;
+                master.connect(ac.destination);
+                sfx = ac.createGain();
+                sfx.connect(master);
+                musik = ac.createGain();
+                musik.connect(master);
+                lautstaerkeSetzen();
+            }
+
+            function lautstaerkeSetzen() {
+                if (!ac) return;
+                sfx.gain.value = modus < 2 ? 1 : 0;
+                musik.gain.value = modus === 0 ? 0.32 : 0;
+            }
+
+            function ton(freq, zeit, dauer, typ, laut, zielFreq, ausgang) {
+                const o = ac.createOscillator();
+                const g = ac.createGain();
+                o.type = typ || 'sine';
+                o.frequency.setValueAtTime(freq, zeit);
+                if (zielFreq) o.frequency.exponentialRampToValueAtTime(zielFreq, zeit + dauer);
+                g.gain.setValueAtTime(0.0001, zeit);
+                g.gain.exponentialRampToValueAtTime(laut || 0.2, zeit + 0.012);
+                g.gain.exponentialRampToValueAtTime(0.0001, zeit + dauer);
+                o.connect(g);
+                g.connect(ausgang || sfx);
+                o.start(zeit);
+                o.stop(zeit + dauer + 0.05);
+            }
+
+            const effekte = {
+                flug:     n => ton(300, n, 0.12, 'sine', 0.07, 520),
+                stern:    n => { ton(988, n, 0.1, 'triangle', 0.2); ton(1319, n + 0.07, 0.2, 'triangle', 0.2); },
+                kraft:    n => [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => ton(f, n + i * 0.06, 0.2, 'square', 0.06)),
+                herz:     n => { ton(659, n, 0.15, 'triangle', 0.22); ton(880, n + 0.12, 0.3, 'triangle', 0.22); },
+                treffer:  n => ton(320, n, 0.4, 'sawtooth', 0.12, 80),
+                verscheucht: n => ton(500, n, 0.35, 'triangle', 0.15, 1500),
+                warnung:  n => { ton(880, n, 0.07, 'square', 0.035); ton(880, n + 0.13, 0.07, 'square', 0.035); },
+                level:    n => { [523, 659, 784].forEach((f, i) => ton(f, n + i * 0.09, 0.14, 'square', 0.07)); ton(1047, n + 0.27, 0.4, 'square', 0.07); },
+                gameover: n => [392, 330, 262, 196].forEach((f, i) => ton(f, n + i * 0.22, 0.32, 'triangle', 0.22)),
+                rekord:   n => [523, 659, 784, 1047, 784, 1047].forEach((f, i) => ton(f, n + i * 0.11, 0.2, 'square', 0.08)),
+                sieg:     n => [523, 523, 523, 659, 784, 659, 784, 1047].forEach((f, i) =>
+                              ton(f, n + [0, 0.12, 0.24, 0.36, 0.6, 0.84, 0.96, 1.2][i], i === 7 ? 0.8 : 0.2, 'square', 0.08))
+            };
+
+            function spiele(name) {
+                if (!ac || modus === 2) return;
+                effekte[name](ac.currentTime + 0.01);
+            }
+
+            // Fröhliche Musikschleife: 32 Achtelnoten Melodie + Bass
+            const MELODIE = [72, 76, 79, 76, 74, 77, 81, 77, 76, 79, 84, 79, 77, 76, 74, null,
+                             72, 74, 76, 79, 81, 79, 76, 74, 72, 76, 74, 71, 72, null, 67, null];
+            const BASS = [48, 53, 55, 48];
+            let musikLaeuft = false, naechsteNote = 0, schritt = 0, taktgeber = null;
+
+            function planeMusik() {
+                if (!musikLaeuft) return;
+                const tempo = 118 + (level - 1) * 4;
+                const achtel = 60 / tempo / 2;
+                while (naechsteNote < ac.currentTime + 0.25) {
+                    const m = MELODIE[schritt];
+                    if (m) ton(midi(m), naechsteNote, achtel * 1.6, 'triangle', 0.18, null, musik);
+                    if (schritt % 2 === 0) {
+                        const grund = BASS[Math.floor(schritt / 8)];
+                        const b = (schritt % 4 === 0) ? grund : grund + 7;
+                        ton(midi(b), naechsteNote, achtel * 1.8, 'sine', 0.28, null, musik);
+                    }
+                    naechsteNote += achtel;
+                    schritt = (schritt + 1) % MELODIE.length;
+                }
+            }
+
+            function musikStart() {
+                if (!ac || musikLaeuft) return;
+                musikLaeuft = true;
+                naechsteNote = ac.currentTime + 0.1;
+                schritt = 0;
+                taktgeber = setInterval(planeMusik, 50);
+            }
+            function musikStopp() {
+                musikLaeuft = false;
+                clearInterval(taktgeber);
+            }
+
+            function umschalten() {
+                modus = (modus + 1) % 3;
+                try { localStorage.setItem('jg-ton', String(modus)); } catch (e) {}
+                lautstaerkeSetzen();
+                return modus;
+            }
+
+            return { start, spiele, musikStart, musikStopp, umschalten, modus: () => modus };
+        })();
+
+        const TON_SYMBOLE = [
+            // Lautsprecher mit Wellen + Note (alles an)
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>',
+            // nur Effekte: Lautsprecher mit einer Welle und durchgestrichener Note
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 9a4 4 0 0 1 0 6"/><text x="17" y="22" font-size="8" fill="currentColor" stroke="none">FX</text></svg>',
+            // stumm
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 9l5 6M21 9l-5 6"/></svg>'
+        ];
+        const tonKnopf = document.getElementById('tonKnopf');
+        function tonKnopfZeichnen() {
+            tonKnopf.innerHTML = TON_SYMBOLE[Klang.modus()];
+            tonKnopf.title = ['Musik + Töne', 'Nur Töne', 'Stumm'][Klang.modus()];
+        }
+        function tonKnopfGedrueckt(e) {
+            e.stopPropagation();
+            if (e.cancelable) e.preventDefault();
+            Klang.start();
+            Klang.umschalten();
+            tonKnopfZeichnen();
+        }
+        tonKnopf.addEventListener('touchstart', tonKnopfGedrueckt, { passive: false });
+        tonKnopf.addEventListener('mousedown', tonKnopfGedrueckt);
+        tonKnopfZeichnen();
+
+        // ===== REKORD =====
+        let rekord = { sterne: 0, bestzeit: null };
+        try {
+            const gespeichert = JSON.parse(localStorage.getItem('jg-rekord') || 'null');
+            if (gespeichert) rekord = Object.assign(rekord, gespeichert);
+        } catch (e) {}
+        let neuerRekord = false;
+        function rekordSpeichern() {
+            try { localStorage.setItem('jg-rekord', JSON.stringify(rekord)); } catch (e) {}
+        }
+
+        // ===== HERZEN =====
+        const MAX_HERZEN = 3;
+        let herzen = MAX_HERZEN;
+        let schutzTimer = 0;   // Sekunden Schutz nach einem Treffer
+        let spielZeit = 0;
+
+        function zeichneHerz(x, y, groesse, voll) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(groesse / 20, groesse / 20);
+            ctx.beginPath();
+            ctx.moveTo(0, 6);
+            ctx.bezierCurveTo(0, 0, -10, -2, -10, -7);
+            ctx.bezierCurveTo(-10, -12, -3, -13, 0, -8);
+            ctx.bezierCurveTo(3, -13, 10, -12, 10, -7);
+            ctx.bezierCurveTo(10, -2, 0, 0, 0, 6);
+            ctx.closePath();
+            ctx.fillStyle = voll ? '#ff4d7a' : 'rgba(255, 255, 255, 0.25)';
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // ===== HINTERGRUND =====
+        // Mehrere Ebenen, die unterschiedlich schnell vorbeiziehen (Parallax):
+        // Himmel, Sonne, ferne Wolken, Berge, Hügel mit Burgruine, Wiese.
+
+        const ferneWolken = [
+            { x: 60,  y: 55,  s: 1.0 },
+            { x: 290, y: 95,  s: 0.7 },
+            { x: 520, y: 45,  s: 0.85 },
+            { x: 760, y: 110, s: 0.6 },
+            { x: 960, y: 70,  s: 0.9 }
+        ];
+
+        function schleife(wert, laenge) {
+            return ((wert % laenge) + laenge) % laenge;
+        }
+
+        function huegelHoehe(x, basis, amp, welle) {
+            return basis
+                + Math.sin(x / welle) * amp
+                + Math.sin(x / (welle * 0.43) + 1.7) * amp * 0.45;
+        }
+
+        function zeichneHuegel(versatz, basis, amp, welle, farbe) {
+            ctx.fillStyle = farbe;
+            ctx.beginPath();
+            ctx.moveTo(0, H);
+            for (let x = 0; x <= W + 10; x += 10) {
+                ctx.lineTo(x, huegelHoehe(x + versatz, basis, amp, welle));
+            }
+            ctx.lineTo(W, H);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function zeichneWeicheWolke(x, y, s, alpha, farbe) {
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = farbe || '#ffffff';
+            ctx.beginPath();
+            ctx.ellipse(x, y, 46 * s, 16 * s, 0, 0, Math.PI * 2);
+            ctx.ellipse(x - 20 * s, y - 8 * s, 22 * s, 16 * s, 0, 0, Math.PI * 2);
+            ctx.ellipse(x + 10 * s, y - 16 * s, 26 * s, 20 * s, 0, 0, Math.PI * 2);
+            ctx.ellipse(x + 32 * s, y - 4 * s, 18 * s, 13 * s, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function zeichneBurgruine(x, boden, farbe, fensterFarbe) {
+            ctx.fillStyle = farbe;
+            ctx.beginPath();
+            // linker Turm mit Zinnen
+            ctx.moveTo(x, boden);
+            ctx.lineTo(x, boden - 62);
+            ctx.lineTo(x + 6, boden - 62); ctx.lineTo(x + 6, boden - 56);
+            ctx.lineTo(x + 11, boden - 56); ctx.lineTo(x + 11, boden - 62);
+            ctx.lineTo(x + 17, boden - 62); ctx.lineTo(x + 17, boden - 56);
+            ctx.lineTo(x + 22, boden - 56); ctx.lineTo(x + 22, boden - 62);
+            ctx.lineTo(x + 28, boden - 62);
+            // eingestürzte Mauer
+            ctx.lineTo(x + 28, boden - 34);
+            ctx.lineTo(x + 36, boden - 40);
+            ctx.lineTo(x + 44, boden - 30);
+            ctx.lineTo(x + 52, boden - 38);
+            ctx.lineTo(x + 60, boden - 28);
+            // kaputter rechter Turm
+            ctx.lineTo(x + 60, boden - 46);
+            ctx.lineTo(x + 66, boden - 52);
+            ctx.lineTo(x + 72, boden - 44);
+            ctx.lineTo(x + 76, boden - 50);
+            ctx.lineTo(x + 76, boden);
+            ctx.closePath();
+            ctx.fill();
+            // Fenster
+            ctx.fillStyle = fensterFarbe;
+            ctx.beginPath();
+            ctx.ellipse(x + 14, boden - 42, 3, 6, 0, 0, Math.PI * 2);
+            ctx.ellipse(x + 68, boden - 34, 2.5, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function zeichneBlume(x, y, farbe) {
+            ctx.fillStyle = farbe;
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const w = i / 5 * Math.PI * 2;
+                ctx.moveTo(x + Math.cos(w) * 3.5 + 2.5, y + Math.sin(w) * 3.5);
+                ctx.arc(x + Math.cos(w) * 3.5, y + Math.sin(w) * 3.5, 2.5, 0, Math.PI * 2);
+            }
+            ctx.fill();
+            ctx.fillStyle = '#ffe14d';
+            ctx.beginPath();
+            ctx.arc(x, y, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // ===== WELTEN =====
+        // Alle 2 Level wechselt die Tageszeit, mit weichem Übergang.
+        const WELTEN = [
+            { name: 'Morgen',          himmel: ['#7fb4e6', '#ffd3b5', '#ffb3c7'], sonne: '#ffcf70', sx: 150, sy: 215, berge: '#c4b5e0', huegel: '#a8d98e', vorne: '#78c463', ruine: '#8c90b8', wolke: '#fff0f5', wolkenAlpha: 0.85 },
+            { name: 'Mittag',          himmel: ['#5fb8f5', '#a9dcff', '#ffe0ef'], sonne: '#ffe36e', sx: 470, sy: 75,  berge: '#b9c4ea', huegel: '#9fd88a', vorne: '#6cc35a', ruine: '#7d8fb3', wolke: '#ffffff', wolkenAlpha: 0.85 },
+            { name: 'Nachmittag',      himmel: ['#4aa3e8', '#9fd0f5', '#fff1c9'], sonne: '#ffd84a', sx: 620, sy: 125, berge: '#b0b8e0', huegel: '#a3d47a', vorne: '#6fbd4f', ruine: '#7a88ad', wolke: '#fffbea', wolkenAlpha: 0.85 },
+            { name: 'Sonnenuntergang', himmel: ['#3d4a9c', '#e07aa0', '#ffb36b'], sonne: '#ff8a3d', sx: 640, sy: 235, berge: '#8a6fae', huegel: '#6f9e63', vorne: '#4f8a45', ruine: '#5e5a86', wolke: '#ffc9c0', wolkenAlpha: 0.8 },
+            { name: 'Nacht',           himmel: ['#0e1a40', '#253a78', '#4a4f9a'], sonne: '#f4f1d0', sx: 440, sy: 85,  berge: '#3c4680', huegel: '#2f5e4a', vorne: '#244d3a', ruine: '#2c3460', wolke: '#9aa6d6', wolkenAlpha: 0.35 }
+        ];
+        let weltAnzeige = 0;   // läuft weich zur Zielwelt (z. B. 1.4 = mitten im Übergang)
+
+        function weltFuerLevel(lvl) {
+            return Math.min(WELTEN.length - 1, Math.floor((lvl - 1) / 2));
+        }
+
+        function hexZuRgb(hex) {
+            const n = parseInt(hex.slice(1), 16);
+            return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+        }
+        function mischeFarbe(a, b, t) {
+            const x = hexZuRgb(a), y = hexZuRgb(b);
+            const m = x.map((v, i) => Math.round(v + (y[i] - v) * t));
+            return `rgb(${m[0]}, ${m[1]}, ${m[2]})`;
+        }
+        function abdunkeln(farbeRgb, faktor) {
+            const m = farbeRgb.match(/\d+/g).map(Number);
+            return `rgb(${m.map(v => Math.round(v * faktor)).join(', ')})`;
+        }
+
+        function aktuellePalette() {
+            const i = Math.floor(weltAnzeige);
+            const j = Math.min(WELTEN.length - 1, i + 1);
+            const t = weltAnzeige - i;
+            const a = WELTEN[i], b = WELTEN[j];
+            return {
+                himmel: a.himmel.map((f, k) => mischeFarbe(f, b.himmel[k], t)),
+                sonne: mischeFarbe(a.sonne, b.sonne, t),
+                sx: a.sx + (b.sx - a.sx) * t,
+                sy: a.sy + (b.sy - a.sy) * t,
+                berge: mischeFarbe(a.berge, b.berge, t),
+                huegel: mischeFarbe(a.huegel, b.huegel, t),
+                vorne: mischeFarbe(a.vorne, b.vorne, t),
+                ruine: mischeFarbe(a.ruine, b.ruine, t),
+                wolke: mischeFarbe(a.wolke, b.wolke, t),
+                wolkenAlpha: a.wolkenAlpha + (b.wolkenAlpha - a.wolkenAlpha) * t,
+                nacht: Math.max(0, Math.min(1, weltAnzeige - (WELTEN.length - 2)))
+            };
+        }
+
+        // feste Positionen für den Sternenhimmel bei Nacht
+        const himmelsSterne = Array.from({ length: 45 }, (_, i) => ({
+            x: (i * 173.3) % W,
+            y: (i * 61.7) % 230,
+            r: 0.8 + (i % 3) * 0.5,
+            phase: i * 1.3
+        }));
+
+        function zeichneHintergrund() {
+            const t = hintergrundZeit;
+            const p = aktuellePalette();
+
+            // Himmel
+            const himmel = ctx.createLinearGradient(0, 0, 0, H);
+            himmel.addColorStop(0, p.himmel[0]);
+            himmel.addColorStop(0.55, p.himmel[1]);
+            himmel.addColorStop(1, p.himmel[2]);
+            ctx.fillStyle = himmel;
+            ctx.fillRect(0, 0, W, H);
+
+            // Sternenhimmel (nur nachts)
+            if (p.nacht > 0) {
+                ctx.fillStyle = '#ffffff';
+                for (const st of himmelsSterne) {
+                    ctx.globalAlpha = p.nacht * (0.5 + 0.5 * Math.sin(spielRahmen / 30 + st.phase));
+                    ctx.beginPath();
+                    ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            // Sonne bzw. Mond mit Schein
+            const sx = p.sx, sy = p.sy;
+            const glanz = p.sonne.replace('rgb', 'rgba').replace(')', ', ');
+            const schein = ctx.createRadialGradient(sx, sy, 20, sx, sy, 110);
+            schein.addColorStop(0, glanz + (0.75 - p.nacht * 0.45) + ')');
+            schein.addColorStop(1, glanz + '0)');
+            ctx.fillStyle = schein;
+            ctx.fillRect(sx - 110, sy - 110, 220, 220);
+            ctx.fillStyle = p.sonne;
+            ctx.beginPath();
+            ctx.arc(sx, sy, 32 - p.nacht * 6, 0, Math.PI * 2);
+            ctx.fill();
+            if (p.nacht > 0) {
+                // Mondkrater
+                ctx.globalAlpha = p.nacht * 0.25;
+                ctx.fillStyle = '#b9b48f';
+                ctx.beginPath();
+                ctx.arc(sx - 8, sy - 6, 5, 0, Math.PI * 2);
+                ctx.arc(sx + 7, sy + 8, 4, 0, Math.PI * 2);
+                ctx.arc(sx + 9, sy - 9, 2.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            // Ferne Wolken (sehr langsam)
+            for (const w of ferneWolken) {
+                const x = schleife(w.x - t * 12, W + 240) - 120;
+                zeichneWeicheWolke(x, w.y, w.s, p.wolkenAlpha, p.wolke);
+            }
+
+            // Berge in der Ferne
+            zeichneHuegel(t * 15, 255, 30, 90, p.berge);
+
+            // Hügel mit Burgruine
+            const mitteVersatz = t * 30;
+            const ruinenAbstand = 1400;
+            const ruinenX = schleife(500 - mitteVersatz, ruinenAbstand) - 150;
+            zeichneBurgruine(ruinenX, huegelHoehe(ruinenX + 38 + mitteVersatz, 300, 22, 110) + 6,
+                p.ruine, abdunkeln(p.ruine, 0.75));
+            zeichneHuegel(mitteVersatz, 300, 22, 110, p.huegel);
+
+            // Vordere Wiese
+            const vorneVersatz = t * 70;
+            zeichneHuegel(vorneVersatz, 355, 10, 70, p.vorne);
+            const blumenFarben = ['#ff7eb6', '#ffffff', '#c38bff', '#ff9f6b'];
+            ctx.globalAlpha = 1 - p.nacht * 0.45;
+            for (let i = 0; i < 14; i++) {
+                const bx = schleife(i * 67 - vorneVersatz, W + 60) - 30;
+                const by = huegelHoehe(bx + vorneVersatz, 355, 10, 70) + 14 + (i % 3) * 9;
+                zeichneBlume(bx, by, blumenFarben[i % blumenFarben.length]);
+            }
+            ctx.globalAlpha = 1;
+
+            // Glühwürmchen in der Nacht
+            if (p.nacht > 0) {
+                ctx.fillStyle = '#fff59a';
+                for (let i = 0; i < 10; i++) {
+                    const gx = schleife(i * 97 - t * 25 + Math.sin(spielRahmen / 40 + i) * 15, W);
+                    const gy = 300 + Math.sin(spielRahmen / 25 + i * 2) * 25 + (i % 4) * 18;
+                    ctx.globalAlpha = p.nacht * (0.4 + 0.6 * Math.abs(Math.sin(spielRahmen / 20 + i)));
+                    ctx.beginPath();
+                    ctx.arc(gx, gy, 2.2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        function steuerungAusloesen(e) {
+            if (e) {
+                if (e.cancelable) e.preventDefault();
+            }
+            
+            Klang.start();
+            if (zustand === 'intro') {
+                resetSpiel();
+                zustand = 'spiel';
+                Klang.musikStart();
+            } else if (zustand === 'gameover' || zustand === 'sieg') {
+                if (performance.now() < eingabeGesperrtBis) return;
+                resetSpiel();
+                zustand = 'spiel';
+                Klang.musikStart();
+            } else if (zustand === 'spiel') {
+                einhorn.velocity = einhorn.jump;
+                Klang.spiele('flug');
+            }
+        }
+
+        window.onload = function() {
+            window.addEventListener('mousedown', steuerungAusloesen, { passive: false });
+            window.addEventListener('touchstart', steuerungAusloesen, { passive: false });
+            window.addEventListener('keydown', function(e) {
+                if (e.code === 'Space') {
+                    steuerungAusloesen(e);
+                }
+            });
+            requestAnimationFrame(update);
+        };
+
+        // ===== JOHANNI =====
+        // Reitet auf Glacier: dunkelblonde, mittellange Haare,
+        // türkiser Heldinnen-Umhang. Koordinaten relativ zu Glacier.
+        function zeichneJohanni(t) {
+            const wehen = Math.sin(t * 10) * 2;
+            const haar = '#b08d57';
+            const haut = '#ffd9c0';
+            ctx.save();
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
+            // Umhang (weht nach hinten)
+            ctx.fillStyle = '#17a9ba';
+            ctx.strokeStyle = '#0d6f7c';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(36, 3);
+            ctx.quadraticCurveTo(26, 4 + wehen, 17, 9 + wehen);
+            ctx.quadraticCurveTo(20, 14 + wehen, 15, 19 + wehen * 1.5);
+            ctx.quadraticCurveTo(27, 18, 35, 15);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Bein mit Stiefel
+            ctx.strokeStyle = '#1d7f99';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(37, 15);
+            ctx.lineTo(41, 23);
+            ctx.stroke();
+            ctx.fillStyle = '#7a5434';
+            ctx.beginPath();
+            ctx.ellipse(42, 24.5, 3, 2, 0.3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Oberkörper
+            ctx.fillStyle = '#3fd3e3';
+            ctx.strokeStyle = '#0d6f7c';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.ellipse(37.5, 9, 4.5, 6.5, 0.15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            // kleiner Stern auf der Brust
+            ctx.fillStyle = '#ffe14d';
+            ctx.beginPath();
+            ctx.arc(38.5, 8.5, 1.4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Arm hält sich an der Mähne fest
+            ctx.strokeStyle = haut;
+            ctx.lineWidth = 2.6;
+            ctx.beginPath();
+            ctx.moveTo(39, 6);
+            ctx.lineTo(45, 10);
+            ctx.stroke();
+
+            // Haare hinten (mittellang, wehen leicht)
+            ctx.fillStyle = haar;
+            ctx.beginPath();
+            ctx.ellipse(36.5, 0, 5.8, 6.8, 0.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(33, -2);
+            ctx.quadraticCurveTo(29, 4 + wehen * 0.5, 31, 7 + wehen * 0.6);
+            ctx.lineTo(36, 5);
+            ctx.closePath();
+            ctx.fill();
+
+            // Gesicht
+            ctx.fillStyle = haut;
+            ctx.beginPath();
+            ctx.arc(39.5, -1, 4.6, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pony
+            ctx.fillStyle = haar;
+            ctx.beginPath();
+            ctx.ellipse(38.6, -4.6, 5.2, 2.8, 0.15, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Auge, Bäckchen, Lächeln
+            ctx.fillStyle = '#2b2440';
+            ctx.beginPath();
+            ctx.arc(41.6, -1.2, 0.9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255, 120, 150, 0.5)';
+            ctx.beginPath();
+            ctx.arc(41, 1.2, 1.3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#a0524a';
+            ctx.lineWidth = 0.9;
+            ctx.beginPath();
+            ctx.arc(42.3, 0.8, 1.4, 0.2, Math.PI * 0.8);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // ===== GLACIER =====
+        // Weißes Einhorn mit Regenbogenmähne, goldenem Horn und Flügel.
+        // Gezeichnet in einem 70x50-Kasten (gleiche Trefferzone wie vorher).
+        function zeichnePixelEinhorn(x, y) {
+            const t = spielRahmen / 60;
+            const kraft = unverwundbarTimer > 0;
+            const umriss = '#8aa3c8';
+
+            ctx.save();
+            // nach einem Treffer kurz blinken (Schutzzeit)
+            if (schutzTimer > 0 && Math.floor(spielRahmen / 5) % 2 === 0) {
+                ctx.globalAlpha = 0.35;
+            }
+            ctx.translate(x + 35, y + 25);
+            // leichte Neigung je nach Flugrichtung
+            const neigung = zustand === 'spiel'
+                ? Math.max(-0.35, Math.min(0.35, einhorn.velocity / 1100))
+                : 0;
+            ctx.rotate(neigung);
+            ctx.translate(-35, -25);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
+            // Regenbogen-Schein bei Unverwundbarkeit
+            if (kraft) {
+                const farbton = (t * 360) % 360;
+                ctx.fillStyle = `hsla(${farbton}, 100%, 70%, 0.45)`;
+                ctx.beginPath();
+                ctx.ellipse(36, 22, 46, 36, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const maehne = kraft
+                ? [0, 1, 2].map(i => `hsl(${(t * 360 + i * 60) % 360}, 95%, 65%)`)
+                : ['#ff8ac4', '#b98cff', '#6fd6ff'];
+
+            // Schweif
+            const wehen = Math.sin(t * 8) * 3;
+            ctx.lineWidth = 5;
+            maehne.forEach((farbe, i) => {
+                ctx.strokeStyle = farbe;
+                ctx.beginPath();
+                ctx.moveTo(16, 22 + i * 2);
+                ctx.quadraticCurveTo(4, 18 + i * 5 + wehen, -2, 30 + i * 4 - wehen);
+                ctx.stroke();
+            });
+
+            // Beine (laufen leicht mit)
+            const lauf = Math.sin(t * 10) * 3;
+            const beine = [[20, lauf], [27, -lauf], [42, -lauf], [49, lauf]];
+            for (const [bx, schwung] of beine) {
+                ctx.strokeStyle = umriss;
+                ctx.lineWidth = 7.5;
+                ctx.beginPath();
+                ctx.moveTo(bx, 32);
+                ctx.lineTo(bx + schwung, 45);
+                ctx.stroke();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 5;
+                ctx.stroke();
+                ctx.fillStyle = '#ff9cc9';
+                ctx.beginPath();
+                ctx.arc(bx + schwung, 46, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Körper + Hals
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = umriss;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.ellipse(34, 28, 20, 11, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(43, 24);
+            ctx.quadraticCurveTo(46, 12, 52, 6);
+            ctx.lineTo(60, 12);
+            ctx.quadraticCurveTo(54, 22, 52, 32);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // Naht zwischen Hals und Körper überdecken
+            ctx.beginPath();
+            ctx.ellipse(45, 26, 7, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Kopf
+            ctx.beginPath();
+            ctx.ellipse(58, 10, 9, 7, 0.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#ffe6f1';
+            ctx.beginPath();
+            ctx.ellipse(64, 14, 5.5, 4.5, 0.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#d98aa8';
+            ctx.beginPath();
+            ctx.arc(66, 13.5, 0.9, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Ohr
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(52, 5);
+            ctx.lineTo(53, -3);
+            ctx.lineTo(57, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Horn
+            ctx.fillStyle = '#ffd34d';
+            ctx.strokeStyle = '#d9a520';
+            ctx.beginPath();
+            ctx.moveTo(57, 3);
+            ctx.lineTo(64, -12);
+            ctx.lineTo(61, 5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(58.5, 0); ctx.lineTo(61.5, 0.5);
+            ctx.moveTo(60, -4); ctx.lineTo(62.3, -3.6);
+            ctx.stroke();
+
+            // Mähne
+            maehne.forEach((farbe, i) => {
+                ctx.fillStyle = farbe;
+                ctx.beginPath();
+                ctx.ellipse(51 - i * 2.5, 4 + i * 6, 5, 4.5, -0.6, 0, Math.PI * 2);
+                ctx.ellipse(47 - i * 2.5, 9 + i * 6, 4.5, 4, -0.6, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Auge, Glanzpunkt, Wimpern, Bäckchen
+            ctx.fillStyle = '#2b2440';
+            ctx.beginPath();
+            ctx.ellipse(59.5, 9, 2.2, 2.8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(60.3, 8, 0.9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#2b2440';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(61, 6.4); ctx.lineTo(63, 5);
+            ctx.moveTo(60, 6.1); ctx.lineTo(61, 4.3);
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(255, 120, 170, 0.45)';
+            ctx.beginPath();
+            ctx.arc(58, 14, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            zeichneJohanni(t);
+
+            // Flügel (schlägt um die Schulter)
+            const schlag = Math.sin(t * 12) * 0.55;
+            ctx.save();
+            ctx.translate(30, 23);
+            ctx.rotate(-0.5 + schlag);
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#9cc8f0';
+            ctx.lineWidth = 1.5;
+            for (let i = 0; i < 3; i++) {
+                ctx.beginPath();
+                ctx.ellipse(-4 - i * 5, -8 + i * 2, 5, 13 - i * 2, -0.35 - i * 0.25, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            ctx.restore();
+        }
+
+        function zeichneFiligraneWolke(x, y, width, height) {
+            // Rosa Gewitterwolke: kräftiger als der Himmel, damit man sie gut sieht
+            ctx.save();
+            const r = height * 0.35;
+            const blasen = [
+                [0.3, 0.5, 1], [0.5, 0.4, 1.2], [0.7, 0.5, 1], [0.5, 0.6, 1.1]
+            ];
+            const wolkenPfad = () => {
+                ctx.beginPath();
+                for (const [fx, fy, fr] of blasen) {
+                    ctx.moveTo(x + width * fx + r * fr, y + height * fy);
+                    ctx.arc(x + width * fx, y + height * fy, r * fr, 0, Math.PI * 2);
+                }
+            };
+
+            // Blitz unter der Wolke (flackert)
+            if (Math.floor(spielRahmen / 8 + x / 50) % 5 === 0) {
+                ctx.fillStyle = '#ffe14d';
+                ctx.strokeStyle = '#e0a800';
+                ctx.lineWidth = 1.5;
+                const bx = x + width * 0.5, by = y + height * 0.8;
+                ctx.beginPath();
+                ctx.moveTo(bx, by);
+                ctx.lineTo(bx - 8, by + 16);
+                ctx.lineTo(bx - 1, by + 16);
+                ctx.lineTo(bx - 6, by + 30);
+                ctx.lineTo(bx + 8, by + 11);
+                ctx.lineTo(bx + 1, by + 11);
+                ctx.lineTo(bx + 5, by);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            // Außenkontur: erst dick umranden, dann füllen -> nur der Rand bleibt sichtbar
+            wolkenPfad();
+            ctx.strokeStyle = '#7a2f6e';
+            ctx.lineWidth = 5;
+            ctx.stroke();
+            ctx.fillStyle = '#d46fb4';
+            ctx.fill();
+
+            // hellere Oberseite
+            ctx.fillStyle = '#ec9fd2';
+            ctx.beginPath();
+            ctx.ellipse(x + width * 0.45, y + height * 0.32, r * 0.8, r * 0.45, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // grimmiges Gesicht
+            const gx = x + width * 0.5, gy = y + height * 0.55;
+            ctx.strokeStyle = '#5a1f52';
+            ctx.lineWidth = 2.5;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(gx - 15, gy - 7); ctx.lineTo(gx - 6, gy - 3);
+            ctx.moveTo(gx + 15, gy - 7); ctx.lineTo(gx + 6, gy - 3);
+            ctx.stroke();
+            ctx.fillStyle = '#5a1f52';
+            ctx.beginPath();
+            ctx.arc(gx - 9, gy + 2, 2.5, 0, Math.PI * 2);
+            ctx.arc(gx + 9, gy + 2, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(gx, gy + 14, 5, Math.PI * 1.15, Math.PI * 1.85);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        function zeichneEchtenStern(cx, cy, spikes, outerRadius, innerRadius, istPowerUp) {
+            ctx.save();
+            let rot = Math.PI / 2 * 3;
+            let x = cx;
+            let y = cy;
+            let step = Math.PI / spikes;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - outerRadius);
+            for (let i = 0; i < spikes; i++) {
+                x = cx + Math.cos(rot) * outerRadius;
+                y = cy + Math.sin(rot) * outerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+                x = cx + Math.cos(rot) * innerRadius;
+                y = cy + Math.sin(rot) * innerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+            }
+            ctx.lineTo(cx, cy - outerRadius);
+            ctx.closePath();
+            
+            if (istPowerUp) {
+                ctx.fillStyle = Math.floor(spielRahmen / 5) % 2 === 0 ? '#00ffff' : '#ff00ff';
+            } else {
+                ctx.fillStyle = '#ffdf00';
+            }
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        function erstelleStern() {
+            let yPosition = Math.random() * (H - 80) + 40;
+            let istPowerUp = Math.random() < 0.15;
+            // gelegentlich ein Herz, wenn eins fehlt
+            let istHerz = !istPowerUp && herzen < MAX_HERZEN && Math.random() < 0.08;
+            sterne.push({
+                x: W,
+                y: yPosition,
+                radius: istPowerUp ? 18 : 15,
+                baseSpeed: 140,
+                powerUp: istPowerUp,
+                herz: istHerz
+            });
+        }
+
+        function erstelleHindernis() {
+            const breite = 85;
+            const hoehe = 60 + Math.random() * 40; 
+            const yPosition = Math.random() * (H - hoehe);
+            hindernisse.push({ 
+                x: W, 
+                y: yPosition, 
+                width: breite, 
+                height: hoehe, 
+                baseSpeed: 140 
+            });
+        }
+
+
+        // ===== DRACHEN =====
+        // Ab Level 3 fliegen Drachen auf Glacier zu. Mit jedem Level kommen
+        // sie öfter, schneller und mit größeren Wellenbewegungen.
+        // Ab Level 7 versuchen manche, Glacier zu verfolgen.
+        const DRACHE_B = 80;
+        const DRACHE_H = 50;
+
+        function drachenEinstellung(lvl) {
+            if (lvl < 3) return null;
+            const stufe = lvl - 3;
+            return {
+                takt: Math.max(2.0, 5.5 - stufe * 0.5),   // Sekunden zwischen Drachen
+                tempo: 230 + stufe * 25,                  // Pixel pro Sekunde
+                amplitude: 15 + stufe * 7,                // Höhe der Wellenbewegung
+                wellenTempo: 2 + stufe * 0.25,
+                verfolgerChance: lvl >= 7 ? 0.25 + (lvl - 7) * 0.1 : 0
+            };
+        }
+
+        function erstelleDrache(e) {
+            // Startposition so wählen, dass keine undurchdringliche Wand
+            // mit einer gerade erschienenen Wolke entsteht
+            let y = 0;
+            for (let versuch = 0; versuch < 12; versuch++) {
+                y = 30 + Math.random() * (H - DRACHE_H - 60);
+                const blockiert = hindernisse.some(w =>
+                    w.x > W - 260 &&
+                    y + DRACHE_H + 50 > w.y && y - 50 < w.y + w.height);
+                if (!blockiert) break;
+            }
+            Klang.spiele('warnung');
+            drachen.push({
+                x: W + 10,
+                basisY: y,
+                y: y,
+                phase: Math.random() * Math.PI * 2,
+                tempo: e.tempo,
+                amplitude: e.amplitude,
+                wellenTempo: e.wellenTempo,
+                verfolgt: Math.random() < e.verfolgerChance,
+                warnung: 0.9,          // Sekunden Vorwarnung am rechten Rand
+                verscheucht: false,
+                drehung: 0
+            });
+        }
+
+        function zeichneWarnung(y, verfolgt) {
+            if (Math.floor(spielRahmen / 6) % 2 === 0) return;
+            const cx = W - 26, cy = y + DRACHE_H / 2;
+            ctx.save();
+            ctx.fillStyle = verfolgt ? '#ff5a5a' : '#ff9a3c';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 16, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 22px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('!', cx, cy + 8);
+            ctx.restore();
+        }
+
+        function zeichneDrache(d) {
+            const t = spielRahmen / 60;
+            const umriss = d.verfolgt ? '#7a2b2b' : '#2f7a50';
+            const koerper = d.verfolgt ? '#ff7d6b' : '#5cc98a';
+            ctx.save();
+            ctx.translate(d.x + DRACHE_B / 2, d.y + DRACHE_H / 2);
+            ctx.rotate(d.drehung);
+            ctx.translate(-DRACHE_B / 2, -DRACHE_H / 2);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.lineWidth = 2;
+
+            // Schwanz mit Spitze (nach rechts, Drache schaut nach links)
+            ctx.strokeStyle = umriss;
+            ctx.lineWidth = 9;
+            ctx.beginPath();
+            const wedeln = Math.sin(t * 6 + d.phase) * 5;
+            ctx.moveTo(52, 30);
+            ctx.quadraticCurveTo(68, 34 + wedeln, 76, 24 - wedeln);
+            ctx.stroke();
+            ctx.strokeStyle = koerper;
+            ctx.lineWidth = 6;
+            ctx.stroke();
+            ctx.fillStyle = '#ffd34d';
+            ctx.strokeStyle = umriss;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(74, 26 - wedeln);
+            ctx.lineTo(84, 18 - wedeln);
+            ctx.lineTo(79, 30 - wedeln);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // hinterer Flügel
+            const schlag = Math.sin(t * 9 + d.phase);
+            const zeichneFluegel = (dx, farbe) => {
+                // Fledermaus-Flügel, der von der Schulter aus auf- und zuklappt
+                ctx.save();
+                ctx.translate(40 + dx, 22);
+                ctx.scale(1, 0.45 + 0.55 * (schlag * 0.5 + 0.5));
+                ctx.fillStyle = farbe;
+                ctx.strokeStyle = '#6a46b8';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(-4, 0);
+                ctx.lineTo(2, -24);                       // Flügelspitze
+                ctx.quadraticCurveTo(6, -14, 9, -14);
+                ctx.lineTo(14, -20);                      // zweite Spitze
+                ctx.quadraticCurveTo(15, -8, 20, -6);
+                ctx.lineTo(22, -10);
+                ctx.quadraticCurveTo(20, -2, 14, 0);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                // Flügelknochen
+                ctx.beginPath();
+                ctx.moveTo(-2, -1); ctx.lineTo(9, -14);
+                ctx.moveTo(-1, -1); ctx.lineTo(18, -7);
+                ctx.stroke();
+                ctx.restore();
+            };
+            zeichneFluegel(6, '#9a76e8');
+
+            // Körper + Bauch
+            ctx.fillStyle = koerper;
+            ctx.strokeStyle = umriss;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(40, 30, 18, 12, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#ffe9a8';
+            ctx.beginPath();
+            ctx.ellipse(38, 35, 12, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Beinchen
+            ctx.strokeStyle = umriss;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(32, 40); ctx.lineTo(30, 46);
+            ctx.moveTo(46, 40); ctx.lineTo(45, 46);
+            ctx.stroke();
+
+            // Kopf
+            ctx.fillStyle = koerper;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(18, 20, 13, 11, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.ellipse(8, 25, 9, 7, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            // Hals-Naht überdecken
+            ctx.beginPath();
+            ctx.ellipse(27, 26, 7, 7, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Hörner
+            ctx.fillStyle = '#fff3c4';
+            ctx.strokeStyle = umriss;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(20, 10); ctx.lineTo(26, 0); ctx.lineTo(25, 11);
+            ctx.moveTo(14, 10); ctx.lineTo(16, 1); ctx.lineTo(19, 10);
+            ctx.fill();
+            ctx.stroke();
+
+            // Nasenloch, Auge, Augenbraue
+            ctx.fillStyle = umriss;
+            ctx.beginPath();
+            ctx.arc(3, 23, 1.3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.ellipse(16, 18, 4.5, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#2b2440';
+            ctx.beginPath();
+            ctx.arc(14.8, 18.5, 2.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(14, 17.5, 0.9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = umriss;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            if (d.verscheucht) {
+                ctx.moveTo(11, 11); ctx.lineTo(20, 13);   // erschrocken
+            } else {
+                ctx.moveTo(11, 13); ctx.lineTo(20, 10);   // frech
+            }
+            ctx.stroke();
+
+            // kleine Rauchwölkchen aus der Nase
+            if (!d.verscheucht) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                const r = (t * 2 + d.phase) % 1;
+                ctx.beginPath();
+                ctx.arc(-3 - r * 10, 22 - r * 6, 2 + r * 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // vorderer Flügel
+            zeichneFluegel(-4, '#b48cff');
+
+            ctx.restore();
+        }
+
+        function aktualisiereDrachen() {
+            const e = drachenEinstellung(level);
+            if (e) {
+                drachenTimer += dt;
+                if (drachenTimer >= e.takt) {
+                    erstelleDrache(e);
+                    drachenTimer = 0;
+                }
+            }
+
+            for (let i = drachen.length - 1; i >= 0; i--) {
+                const d = drachen[i];
+
+                if (d.warnung > 0) {
+                    d.warnung -= dt;
+                    zeichneWarnung(d.basisY, d.verfolgt);
+                    continue;
+                }
+
+                if (d.verscheucht) {
+                    // Mit Regenbogen-Kraft berührt: Drache flieht nach oben rechts
+                    d.x += 320 * dt;
+                    d.y -= 260 * dt;
+                    d.drehung += 6 * dt;
+                } else {
+                    d.x -= d.tempo * dt;
+                    d.phase += d.wellenTempo * dt;
+                    if (d.verfolgt && d.x > einhorn.x + 60) {
+                        const ziel = einhorn.y - 5;
+                        d.basisY += Math.sign(ziel - d.basisY) * Math.min(Math.abs(ziel - d.basisY), 70 * dt);
+                    }
+                    d.y = d.basisY + Math.sin(d.phase) * d.amplitude;
+                    d.y = Math.max(0, Math.min(H - DRACHE_H, d.y));
+                }
+
+                zeichneDrache(d);
+
+                if (!d.verscheucht &&
+                    einhorn.x + 8 < d.x + DRACHE_B * 0.85 &&
+                    einhorn.x + einhorn.width - 6 > d.x + DRACHE_B * 0.1 &&
+                    einhorn.y + 5 < d.y + DRACHE_H * 0.9 &&
+                    einhorn.y + einhorn.height - 4 > d.y + DRACHE_H * 0.1
+                ) {
+                    if (unverwundbarTimer > 0) {
+                        d.verscheucht = true;
+                        Klang.spiele('verscheucht');
+                    } else if (schutzTimer <= 0 && zustand === 'spiel') {
+                        d.verscheucht = true;   // fliegt nach dem Treffer davon
+                        treffer('drache');
+                    }
+                }
+
+                if (d.x < -DRACHE_B - 20 || d.y < -DRACHE_H - 20 || d.x > W + 120) {
+                    drachen.splice(i, 1);
+                }
+            }
+        }
+
+        function resetSpiel() {
+            score = 0;
+            level = 1;
+            sterne = [];
+            hindernisse = [];
+            drachen = [];
+            drachenTimer = 0;
+            levelHinweis = { text: '', unter: '', zeit: 0 };
+            absturzGrund = 'wolke';
+            einhorn.y = 150;
+            einhorn.velocity = 0;
+            spielRahmen = 0;
+            unverwundbarTimer = 0;
+            schutzTimer = 0;
+            herzen = MAX_HERZEN;
+            spielZeit = 0;
+            neuerRekord = false;
+            weltAnzeige = 0;
+            sternErzeugungsTimer = 0;
+            hindernisErzeugungsTimer = 0;
+        }
+
+        function beendeSpiel(neuerZustand) {
+            zustand = neuerZustand;
+            eingabeGesperrtBis = performance.now() + SPERRZEIT_MS;
+            Klang.musikStopp();
+
+            neuerRekord = false;
+            if (score > rekord.sterne) {
+                rekord.sterne = score;
+                neuerRekord = true;
+            }
+            if (neuerZustand === 'sieg' && (rekord.bestzeit === null || spielZeit < rekord.bestzeit)) {
+                rekord.bestzeit = spielZeit;
+                neuerRekord = true;
+            }
+            rekordSpeichern();
+
+            if (neuerZustand === 'sieg') Klang.spiele('sieg');
+            else if (neuerRekord) Klang.spiele('rekord');
+            else Klang.spiele('gameover');
+        }
+
+        function treffer(grund) {
+            herzen--;
+            Klang.spiele('treffer');
+            if (herzen <= 0) {
+                absturzGrund = grund;
+                beendeSpiel('gameover');
+            } else {
+                schutzTimer = 2;
+                levelHinweis = {
+                    text: 'Autsch!',
+                    unter: herzen === 1 ? 'Nur noch 1 Herz – pass auf!' : 'Noch ' + herzen + ' Herzen',
+                    zeit: 1.6
+                };
+            }
+        }
+
+        function formatZeit(sek) {
+            const m = Math.floor(sek / 60);
+            const s = Math.floor(sek % 60);
+            return m + ':' + String(s).padStart(2, '0');
+        }
+
+        function zeichneKnopf(text, y, farbe) {
+            ctx.fillStyle = farbe;
+            ctx.beginPath();
+            ctx.roundRect(W / 2 - 140, y, 280, 50, 14);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fillStyle = '#333333';
+            ctx.font = 'bold 18px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(text, W / 2, y + 32);
+        }
+
+        function zeichneRekordZeile(y) {
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 18px Arial';
+            if (neuerRekord && zustand !== 'intro') {
+                ctx.fillStyle = Math.floor(spielRahmen / 15) % 2 === 0 ? '#ffe14d' : '#ffffff';
+                ctx.fillText('★ Neuer Rekord! ★', W / 2, y);
+            } else if (rekord.sterne > 0) {
+                ctx.fillStyle = '#ffe9a8';
+                let text = 'Rekord: ' + rekord.sterne + ' Sterne';
+                if (rekord.bestzeit !== null) text += '   ·   Schnellster Sieg: ' + formatZeit(rekord.bestzeit);
+                ctx.fillText(text, W / 2, y);
+            }
+        }
+
+        function update(zeitstempel) {
+            // echte vergangene Zeit seit dem letzten Bild (max. 50 ms,
+            // damit nach einem Tab-Wechsel nichts durch die Gegend springt)
+            if (letzteZeit === null) letzteZeit = zeitstempel;
+            dt = Math.min((zeitstempel - letzteZeit) / 1000, 0.05);
+            letzteZeit = zeitstempel;
+
+            // Animationszähler läuft zeitbasiert (60 Einheiten pro Sekunde)
+            spielRahmen += dt * 60;
+
+            // Hintergrund scrollt im Spiel normal, im Intro gemächlich, sonst steht er
+            if (zustand === 'spiel') hintergrundZeit += dt * (1 + (level - 1) * 0.15);
+            else if (zustand === 'intro') hintergrundZeit += dt * 0.4;
+
+            // Welt läuft weich zur Tageszeit des aktuellen Levels
+            const zielWelt = zustand === 'intro' ? 0 : weltFuerLevel(level);
+            if (weltAnzeige < zielWelt) weltAnzeige = Math.min(zielWelt, weltAnzeige + dt * 0.5);
+            if (weltAnzeige > zielWelt) weltAnzeige = Math.max(zielWelt, weltAnzeige - dt * 2);
+
+            if (unverwundbarTimer > 0) unverwundbarTimer -= dt * 60;
+            if (schutzTimer > 0) schutzTimer -= dt;
+
+            zeichneHintergrund();
+
+            if (zustand === 'spiel') {
+                spielZeit += dt;
+                einhorn.velocity += einhorn.gravity * dt;
+                einhorn.y += einhorn.velocity * dt;
+
+                if (einhorn.y + einhorn.height > H) {
+                    einhorn.y = H - einhorn.height;
+                    einhorn.velocity = 0;
+                }
+                if (einhorn.y < 0) {
+                    einhorn.y = 0;
+                    einhorn.velocity = 0;
+                }
+
+                sternErzeugungsTimer += dt;
+                if (sternErzeugungsTimer >= 1.7) {
+                    erstelleStern();
+                    sternErzeugungsTimer = 0;
+                }
+
+                hindernisErzeugungsTimer += dt;
+                let takt = Math.max(1.1, 2.8 - (level * 0.2));
+                if (hindernisErzeugungsTimer >= takt) {
+                    erstelleHindernis();
+                    hindernisErzeugungsTimer = 0;
+                }
+
+                for (let i = hindernisse.length - 1; i >= 0; i--) {
+                    const w = hindernisse[i];
+                    w.x -= (w.baseSpeed + level * 25) * dt;
+                    zeichneFiligraneWolke(w.x, w.y, w.width, w.height);
+
+                    if (einhorn.x < w.x + w.width * 0.85 &&
+                        einhorn.x + einhorn.width > w.x + w.width * 0.15 &&
+                        einhorn.y < w.y + w.height * 0.85 &&
+                        einhorn.y + einhorn.height > w.y + w.height * 0.15
+                    ) {
+                        if (unverwundbarTimer <= 0 && schutzTimer <= 0 && zustand === 'spiel') {
+                            treffer('wolke');
+                        }
+                    }
+                    if (w.x < -w.width) hindernisse.splice(i, 1);
+                }
+
+                aktualisiereDrachen();
+
+                for (let i = sterne.length - 1; i >= 0; i--) {
+                    const st = sterne[i];
+                    st.x -= (st.baseSpeed + level * 25) * dt;
+
+                    if (st.herz) {
+                        zeichneHerz(st.x, st.y + Math.sin(spielRahmen / 10) * 3, 26, true);
+                    } else {
+                        zeichneEchtenStern(st.x, st.y, 5, st.radius, st.radius / 2, st.powerUp);
+                    }
+
+                    if (st.x + st.radius > einhorn.x &&
+                        st.x - st.radius < einhorn.x + einhorn.width &&
+                        st.y + st.radius > einhorn.y &&
+                        st.y - st.radius < einhorn.y + einhorn.height
+                    ) {
+                        sterne.splice(i, 1);
+                        if (zustand !== 'spiel') continue;
+
+                        if (st.herz) {
+                            herzen = Math.min(MAX_HERZEN, herzen + 1);
+                            Klang.spiele('herz');
+                            continue;
+                        }
+                        if (st.powerUp) {
+                            unverwundbarTimer = 420;
+                            score += 2;
+                            Klang.spiele('kraft');
+                        } else {
+                            score += 1;
+                            Klang.spiele('stern');
+                        }
+
+                        if (score >= 100) {
+                            score = 100;
+                            beendeSpiel('sieg');
+                            continue;
+                        }
+
+                        let neuesLevel = Math.floor(score / 10) + 1;
+                        if (neuesLevel <= 10 && neuesLevel !== level) {
+                            const alteWelt = weltFuerLevel(level);
+                            level = neuesLevel;
+                            let text = 'Level ' + level + '!';
+                            if (level === 3) text = 'Level 3 – Achtung, Drachen!';
+                            else if (level === 7) text = 'Level 7 – Rote Drachen verfolgen dich!';
+                            else if (level >= 4) text = 'Level ' + level + ' – Die Drachen werden schneller!';
+                            const neueWelt = weltFuerLevel(level);
+                            const unter = neueWelt !== alteWelt ? 'Es wird ' + WELTEN[neueWelt].name + ' …' : '';
+                            levelHinweis = { text: text, unter: unter, zeit: 2.5 };
+                            Klang.spiele('level');
+                        }
+                        continue;
+                    }
+                    if (st.x < -30) sterne.splice(i, 1);
+                }
+
+                zeichnePixelEinhorn(einhorn.x, einhorn.y);
+
+                // Hinweistext (Level-Aufstieg, Treffer)
+                if (levelHinweis.zeit > 0) {
+                    levelHinweis.zeit -= dt;
+                    ctx.save();
+                    ctx.globalAlpha = Math.max(0, Math.min(1, levelHinweis.zeit));
+                    ctx.textAlign = 'center';
+                    ctx.lineJoin = 'round';
+                    ctx.strokeStyle = '#6a2c8a';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 26px Arial';
+                    ctx.lineWidth = 6;
+                    ctx.strokeText(levelHinweis.text, W / 2, 150);
+                    ctx.fillText(levelHinweis.text, W / 2, 150);
+                    if (levelHinweis.unter) {
+                        ctx.font = 'bold 18px Arial';
+                        ctx.lineWidth = 5;
+                        ctx.strokeText(levelHinweis.unter, W / 2, 180);
+                        ctx.fillText(levelHinweis.unter, W / 2, 180);
+                    }
+                    ctx.restore();
+                }
+
+                // Anzeige rechts oben
+                const tafelHoehe = unverwundbarTimer > 0 ? 84 : 60;
+                ctx.fillStyle = 'rgba(60, 30, 90, 0.35)';
+                ctx.beginPath();
+                ctx.roundRect(W - 200, 8, 192, tafelHoehe, 12);
+                ctx.fill();
+
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'left';
+                ctx.font = 'bold 18px Arial';
+                ctx.fillText('★ Sterne: ' + score + ' / 100', W - 188, 32);
+                ctx.fillText('Level: ' + level, W - 188, 56);
+                for (let h = 0; h < MAX_HERZEN; h++) {
+                    zeichneHerz(W - 78 + h * 24, 50, 18, h < herzen);
+                }
+
+                if (unverwundbarTimer > 0) {
+                    let restSekunden = Math.ceil(unverwundbarTimer / 60);
+                    ctx.fillStyle = '#7dffe0';
+                    ctx.font = 'bold 14px Arial';
+                    ctx.textAlign = 'left';
+                    ctx.fillText('Regenbogen-Kraft: ' + restSekunden + 's', W - 188, 77);
+                    ctx.fillRect(W - 188, 83, (unverwundbarTimer / 420) * 168, 4);
+                }
+            }
+
+            if (zustand === 'intro') {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                ctx.fillRect(0, 0, W, H);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 32px Arial';
+                ctx.fillText('Die Abenteuer von Johanni und Glacier', W / 2, 62);
+
+                ctx.font = '17px Arial';
+                ctx.fillText('Hilf Johanni, 100 Sterne zu sammeln und das Reich zu retten!', W / 2, 98);
+                ctx.fillText('Weiche Wolken und Drachen aus – du hast 3 Herzen.', W / 2, 122);
+                ctx.fillText('Blinkende Sterne geben dir Regenbogen-Kraft!', W / 2, 146);
+
+                einhorn.y = 192 + Math.sin(spielRahmen * 0.05) * 10;
+                zeichnePixelEinhorn(W / 2 - 35, einhorn.y);
+
+                zeichneKnopf('Klicken / Tippen zum Starten!', 275, '#ffdf00');
+                zeichneRekordZeile(360);
+            }
+
+            if (zustand === 'gameover') {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+                ctx.fillRect(0, 0, W, H);
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 34px Arial';
+                ctx.fillText(absturzGrund === 'drache' ? 'Oje, ein Drache hat euch erwischt!' : 'Oje, in eine Wolke geflogen!', W / 2, 120);
+                ctx.font = '20px Arial';
+                ctx.fillText('Glacier und Johanni müssen sich kurz ausruhen.', W / 2, 165);
+                ctx.fillText('Ihr hattet ' + score + ' Sterne und habt Level ' + level + ' erreicht!', W / 2, 195);
+                zeichneRekordZeile(232);
+
+                if (performance.now() >= eingabeGesperrtBis) {
+                    zeichneKnopf('Nochmal fliegen!', 265, '#ffdf00');
+                }
+            }
+
+            if (zustand === 'sieg') {
+                ctx.fillStyle = 'rgba(255, 105, 180, 0.88)';
+                ctx.fillRect(0, 0, W, H);
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 36px Arial';
+                ctx.fillText('Du hast es geschafft, Johanni!', W / 2, 110);
+                ctx.font = '19px Arial';
+                ctx.fillText('Mit 100 Sternen hast du den Himmel gerettet. Du bist eine Heldin!', W / 2, 155);
+                ctx.fillText('Deine Zeit: ' + formatZeit(spielZeit), W / 2, 188);
+                zeichneRekordZeile(225);
+
+                if (performance.now() >= eingabeGesperrtBis) {
+                    zeichneKnopf('Nochmal spielen', 265, '#00ffcc');
+                }
+            }
+
+            requestAnimationFrame(update);
+        }
+    </script>
+    <script>
+        // Offline-Funktion aktivieren (nur wenn die Seite über das Internet geladen wurde)
+        if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        }
+    </script>
+</body>
+</html>
