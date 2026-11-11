@@ -774,21 +774,43 @@
         };
 
 
+        // ===== LICHT-HILFEN (plastischer Look) =====
+        // Licht kommt von oben links. Runde Flächen bekommen einen Verlauf
+        // von hell (Lichtseite) nach dunkel (Schattenseite).
+        function kugelVerlauf(x, y, r, hell, mitte, dunkel) {
+            const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.45, r * 0.05, x, y, r * 1.15);
+            g.addColorStop(0, hell);
+            g.addColorStop(0.55, mitte);
+            g.addColorStop(1, dunkel);
+            return g;
+        }
+        function glanzlicht(x, y, rx, ry, drehung, alpha) {
+            ctx.save();
+            ctx.globalAlpha *= alpha;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.ellipse(x, y, rx, ry, drehung || 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
         // ===== JOHANNI =====
         // Reitet auf Glacier: dunkelblonde, mittellange Haare,
         // türkiser Heldinnen-Umhang. Koordinaten relativ zu Glacier.
         function zeichneJohanni(t) {
             const wehen = Math.sin(t * 10) * 2;
-            const haar = '#b08d57';
-            const haut = '#ffd9c0';
             ctx.save();
             ctx.lineJoin = 'round';
             ctx.lineCap = 'round';
 
-            // Umhang (weht nach hinten)
-            ctx.fillStyle = '#17a9ba';
-            ctx.strokeStyle = '#0d6f7c';
-            ctx.lineWidth = 1.2;
+            // Umhang mit Faltenschatten
+            const umhang = ctx.createLinearGradient(36, 3, 16, 18);
+            umhang.addColorStop(0, '#2fd0e0');
+            umhang.addColorStop(0.6, '#17a9ba');
+            umhang.addColorStop(1, '#0c7f8d');
+            ctx.fillStyle = umhang;
+            ctx.strokeStyle = '#0a5f6a';
+            ctx.lineWidth = 1.1;
             ctx.beginPath();
             ctx.moveTo(36, 3);
             ctx.quadraticCurveTo(26, 4 + wehen, 17, 9 + wehen);
@@ -797,43 +819,55 @@
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
+            // Falte
+            ctx.strokeStyle = 'rgba(8, 80, 90, 0.45)';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(32, 6);
+            ctx.quadraticCurveTo(25, 10 + wehen, 21, 15 + wehen);
+            ctx.stroke();
 
             // Bein mit Stiefel
-            ctx.strokeStyle = '#1d7f99';
+            const bein = ctx.createLinearGradient(36, 15, 42, 15);
+            bein.addColorStop(0, '#2aa3c4');
+            bein.addColorStop(1, '#156e86');
+            ctx.strokeStyle = bein;
             ctx.lineWidth = 4;
             ctx.beginPath();
             ctx.moveTo(37, 15);
             ctx.lineTo(41, 23);
             ctx.stroke();
-            ctx.fillStyle = '#7a5434';
+            ctx.fillStyle = kugelVerlauf(42, 24.5, 3.2, '#a8784e', '#7a5434', '#4e3420');
             ctx.beginPath();
             ctx.ellipse(42, 24.5, 3, 2, 0.3, 0, Math.PI * 2);
             ctx.fill();
+            glanzlicht(41.2, 23.6, 1.1, 0.5, 0.3, 0.6);
 
             // Oberkörper
-            ctx.fillStyle = '#3fd3e3';
-            ctx.strokeStyle = '#0d6f7c';
-            ctx.lineWidth = 1.2;
+            ctx.fillStyle = kugelVerlauf(37.5, 9, 7, '#8ff0f8', '#3fd3e3', '#1b98a8');
+            ctx.strokeStyle = '#0a5f6a';
+            ctx.lineWidth = 1.1;
             ctx.beginPath();
             ctx.ellipse(37.5, 9, 4.5, 6.5, 0.15, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
-            // kleiner Stern auf der Brust
             ctx.fillStyle = '#ffe14d';
             ctx.beginPath();
             ctx.arc(38.5, 8.5, 1.4, 0, Math.PI * 2);
             ctx.fill();
+            glanzlicht(38.1, 8.1, 0.5, 0.5, 0, 0.9);
 
-            // Arm hält sich an der Mähne fest
-            ctx.strokeStyle = haut;
+            // Arm
+            ctx.strokeStyle = '#f5c6a8';
             ctx.lineWidth = 2.6;
             ctx.beginPath();
             ctx.moveTo(39, 6);
             ctx.lineTo(45, 10);
             ctx.stroke();
 
-            // Haare hinten (mittellang, wehen leicht)
-            ctx.fillStyle = haar;
+            // Haare hinten
+            const haarVerlauf = kugelVerlauf(36.5, 0, 8, '#d9b77e', '#b08d57', '#7d6036');
+            ctx.fillStyle = haarVerlauf;
             ctx.beginPath();
             ctx.ellipse(36.5, 0, 5.8, 6.8, 0.2, 0, Math.PI * 2);
             ctx.fill();
@@ -844,23 +878,29 @@
             ctx.closePath();
             ctx.fill();
 
-            // Gesicht
-            ctx.fillStyle = haut;
+            // Gesicht (Wange zur Lichtseite heller)
+            ctx.fillStyle = kugelVerlauf(39.5, -1, 5.5, '#fff0e4', '#ffd9c0', '#e8b494');
             ctx.beginPath();
             ctx.arc(39.5, -1, 4.6, 0, Math.PI * 2);
             ctx.fill();
 
-            // Pony
-            ctx.fillStyle = haar;
+            // Pony mit Haarglanz
+            ctx.fillStyle = haarVerlauf;
             ctx.beginPath();
             ctx.ellipse(38.6, -4.6, 5.2, 2.8, 0.15, 0, Math.PI * 2);
             ctx.fill();
+            ctx.strokeStyle = 'rgba(255, 240, 200, 0.75)';
+            ctx.lineWidth = 0.9;
+            ctx.beginPath();
+            ctx.arc(37.8, -3.2, 4, Math.PI * 1.15, Math.PI * 1.55);
+            ctx.stroke();
 
             // Auge, Bäckchen, Lächeln
             ctx.fillStyle = '#2b2440';
             ctx.beginPath();
             ctx.arc(41.6, -1.2, 0.9, 0, Math.PI * 2);
             ctx.fill();
+            glanzlicht(41.35, -1.5, 0.3, 0.3, 0, 1);
             ctx.fillStyle = 'rgba(255, 120, 150, 0.5)';
             ctx.beginPath();
             ctx.arc(41, 1.2, 1.3, 0, Math.PI * 2);
@@ -883,12 +923,10 @@
             const umriss = '#8aa3c8';
 
             ctx.save();
-            // nach einem Treffer kurz blinken (Schutzzeit)
             if (schutzTimer > 0 && Math.floor(spielRahmen / 5) % 2 === 0) {
                 ctx.globalAlpha = 0.35;
             }
             ctx.translate(x + 35, y + 25);
-            // leichte Neigung je nach Flugrichtung
             const neigung = zustand === 'spiel'
                 ? Math.max(-0.35, Math.min(0.35, einhorn.velocity / 1100))
                 : 0;
@@ -897,57 +935,70 @@
             ctx.lineJoin = 'round';
             ctx.lineCap = 'round';
 
-            // Regenbogen-Schein bei Unverwundbarkeit
             if (kraft) {
                 const farbton = (t * 360) % 360;
-                ctx.fillStyle = `hsla(${farbton}, 100%, 70%, 0.45)`;
+                const schein = ctx.createRadialGradient(36, 22, 10, 36, 22, 50);
+                schein.addColorStop(0, `hsla(${farbton}, 100%, 75%, 0.6)`);
+                schein.addColorStop(1, `hsla(${(farbton + 60) % 360}, 100%, 70%, 0)`);
+                ctx.fillStyle = schein;
                 ctx.beginPath();
-                ctx.ellipse(36, 22, 46, 36, 0, 0, Math.PI * 2);
+                ctx.ellipse(36, 22, 50, 40, 0, 0, Math.PI * 2);
                 ctx.fill();
             }
 
             const maehne = kraft
                 ? [0, 1, 2].map(i => `hsl(${(t * 360 + i * 60) % 360}, 95%, 65%)`)
                 : ['#ff8ac4', '#b98cff', '#6fd6ff'];
+            const maehneHell = kraft
+                ? [0, 1, 2].map(i => `hsl(${(t * 360 + i * 60) % 360}, 100%, 85%)`)
+                : ['#ffc4e1', '#dcc6ff', '#bdeeff'];
 
-            // Schweif
+            // Schweif mit Glanzlinie
             const wehen = Math.sin(t * 8) * 3;
-            ctx.lineWidth = 5;
             maehne.forEach((farbe, i) => {
-                ctx.strokeStyle = farbe;
                 ctx.beginPath();
                 ctx.moveTo(16, 22 + i * 2);
                 ctx.quadraticCurveTo(4, 18 + i * 5 + wehen, -2, 30 + i * 4 - wehen);
+                ctx.strokeStyle = farbe;
+                ctx.lineWidth = 5;
+                ctx.stroke();
+                ctx.strokeStyle = maehneHell[i];
+                ctx.lineWidth = 1.6;
                 ctx.stroke();
             });
 
-            // Beine (laufen leicht mit)
+            // Beine: hintere (ferne) Beine dunkler -> Tiefe
             const lauf = Math.sin(t * 10) * 3;
-            const beine = [[20, lauf], [27, -lauf], [42, -lauf], [49, lauf]];
-            for (const [bx, schwung] of beine) {
+            const beine = [[27, -lauf, true], [49, lauf, true], [20, lauf, false], [42, -lauf, false]];
+            for (const [bx, schwung, fern] of beine) {
                 ctx.strokeStyle = umriss;
                 ctx.lineWidth = 7.5;
                 ctx.beginPath();
                 ctx.moveTo(bx, 32);
                 ctx.lineTo(bx + schwung, 45);
                 ctx.stroke();
-                ctx.strokeStyle = '#ffffff';
+                const beinFarbe = ctx.createLinearGradient(bx - 3, 0, bx + 3, 0);
+                beinFarbe.addColorStop(0, fern ? '#e9eef7' : '#ffffff');
+                beinFarbe.addColorStop(1, fern ? '#b9c7de' : '#d6e0ef');
+                ctx.strokeStyle = beinFarbe;
                 ctx.lineWidth = 5;
                 ctx.stroke();
-                ctx.fillStyle = '#ff9cc9';
+                ctx.fillStyle = kugelVerlauf(bx + schwung, 46, 3.5, '#ffd1e6', '#ff9cc9', '#d8679c');
                 ctx.beginPath();
                 ctx.arc(bx + schwung, 46, 3, 0, Math.PI * 2);
                 ctx.fill();
             }
 
-            // Körper + Hals
-            ctx.fillStyle = '#ffffff';
+            // Körper + Hals mit Rundung
+            const fell = kugelVerlauf(34, 26, 24, '#ffffff', '#eaf0f8', '#a9bad6');
+            ctx.fillStyle = fell;
             ctx.strokeStyle = umriss;
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.ellipse(34, 28, 20, 11, 0, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
+            ctx.fillStyle = kugelVerlauf(50, 16, 16, '#ffffff', '#eef3fa', '#c3d0e4');
             ctx.beginPath();
             ctx.moveTo(43, 24);
             ctx.quadraticCurveTo(46, 12, 52, 6);
@@ -956,17 +1007,25 @@
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
-            // Naht zwischen Hals und Körper überdecken
+            ctx.fillStyle = fell;
             ctx.beginPath();
             ctx.ellipse(45, 26, 7, 6, 0, 0, Math.PI * 2);
             ctx.fill();
+            // Bauchschatten
+            ctx.fillStyle = 'rgba(120, 140, 185, 0.22)';
+            ctx.beginPath();
+            ctx.ellipse(34, 35, 15, 3.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            glanzlicht(28, 21, 9, 2.6, -0.1, 0.85);
 
             // Kopf
+            ctx.fillStyle = kugelVerlauf(58, 10, 11, '#ffffff', '#f1f5fb', '#c3d0e4');
+            ctx.strokeStyle = umriss;
             ctx.beginPath();
             ctx.ellipse(58, 10, 9, 7, 0.2, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
-            ctx.fillStyle = '#ffe6f1';
+            ctx.fillStyle = kugelVerlauf(64, 14, 6, '#fff6fa', '#ffe6f1', '#f2bcd3');
             ctx.beginPath();
             ctx.ellipse(64, 14, 5.5, 4.5, 0.2, 0, Math.PI * 2);
             ctx.fill();
@@ -975,9 +1034,10 @@
             ctx.beginPath();
             ctx.arc(66, 13.5, 0.9, 0, Math.PI * 2);
             ctx.fill();
+            glanzlicht(55, 5.5, 3.5, 1.4, 0.2, 0.9);
 
             // Ohr
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = '#f4f7fc';
             ctx.beginPath();
             ctx.moveTo(52, 5);
             ctx.lineTo(53, -3);
@@ -985,10 +1045,22 @@
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
+            ctx.fillStyle = '#ffc9df';
+            ctx.beginPath();
+            ctx.moveTo(53.3, 3.6);
+            ctx.lineTo(53.6, -0.5);
+            ctx.lineTo(55.6, 2.8);
+            ctx.closePath();
+            ctx.fill();
 
-            // Horn
-            ctx.fillStyle = '#ffd34d';
-            ctx.strokeStyle = '#d9a520';
+            // Horn mit Metallglanz
+            const horn = ctx.createLinearGradient(57, 0, 63, -2);
+            horn.addColorStop(0, '#fff6c2');
+            horn.addColorStop(0.45, '#ffd34d');
+            horn.addColorStop(1, '#c98f0f');
+            ctx.fillStyle = horn;
+            ctx.strokeStyle = '#b8860b';
+            ctx.lineWidth = 1.2;
             ctx.beginPath();
             ctx.moveTo(57, 3);
             ctx.lineTo(64, -12);
@@ -999,26 +1071,38 @@
             ctx.beginPath();
             ctx.moveTo(58.5, 0); ctx.lineTo(61.5, 0.5);
             ctx.moveTo(60, -4); ctx.lineTo(62.3, -3.6);
+            ctx.moveTo(61.4, -7.6); ctx.lineTo(63, -7.3);
             ctx.stroke();
+            // Funkeln an der Hornspitze
+            const funkeln = 0.5 + 0.5 * Math.sin(t * 4);
+            ctx.save();
+            ctx.globalAlpha *= funkeln;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(64, -15.5); ctx.lineTo(64, -9.5);
+            ctx.moveTo(61, -12.5); ctx.lineTo(67, -12.5);
+            ctx.stroke();
+            ctx.restore();
 
-            // Mähne
+            // Mähne: jede Locke als kleine Kugel
             maehne.forEach((farbe, i) => {
-                ctx.fillStyle = farbe;
-                ctx.beginPath();
-                ctx.ellipse(51 - i * 2.5, 4 + i * 6, 5, 4.5, -0.6, 0, Math.PI * 2);
-                ctx.ellipse(47 - i * 2.5, 9 + i * 6, 4.5, 4, -0.6, 0, Math.PI * 2);
-                ctx.fill();
+                const locken = [[51 - i * 2.5, 4 + i * 6, 5, 4.5], [47 - i * 2.5, 9 + i * 6, 4.5, 4]];
+                for (const [lx, ly, rx, ry] of locken) {
+                    ctx.fillStyle = kugelVerlauf(lx, ly, rx * 1.2, maehneHell[i], farbe, farbe);
+                    ctx.beginPath();
+                    ctx.ellipse(lx, ly, rx, ry, -0.6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             });
 
-            // Auge, Glanzpunkt, Wimpern, Bäckchen
-            ctx.fillStyle = '#2b2440';
+            // Auge mit zwei Glanzpunkten, Wimpern, Bäckchen
+            ctx.fillStyle = kugelVerlauf(59.5, 9, 3, '#5a4a80', '#2b2440', '#15101f');
             ctx.beginPath();
             ctx.ellipse(59.5, 9, 2.2, 2.8, 0, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(60.3, 8, 0.9, 0, Math.PI * 2);
-            ctx.fill();
+            glanzlicht(60.3, 8, 0.9, 0.9, 0, 1);
+            glanzlicht(58.9, 10.4, 0.45, 0.45, 0, 0.8);
             ctx.strokeStyle = '#2b2440';
             ctx.lineWidth = 1.2;
             ctx.beginPath();
@@ -1032,23 +1116,43 @@
 
             zeichneJohanni(t);
 
-            // Flügel (schlägt um die Schulter)
+            // Flügel mit Federverlauf
             const schlag = Math.sin(t * 12) * 0.55;
             ctx.save();
             ctx.translate(30, 23);
             ctx.rotate(-0.5 + schlag);
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#9cc8f0';
-            ctx.lineWidth = 1.5;
-            for (let i = 0; i < 3; i++) {
+            ctx.strokeStyle = '#8fbbe6';
+            ctx.lineWidth = 1.3;
+            for (let i = 2; i >= 0; i--) {
+                const fx = -4 - i * 5, fy = -8 + i * 2;
+                const feder = ctx.createLinearGradient(fx, fy - 12, fx, fy + 12);
+                feder.addColorStop(0, '#ffffff');
+                feder.addColorStop(1, i === 0 ? '#d4e7fa' : '#c2dbf4');
+                ctx.fillStyle = feder;
                 ctx.beginPath();
-                ctx.ellipse(-4 - i * 5, -8 + i * 2, 5, 13 - i * 2, -0.35 - i * 0.25, 0, Math.PI * 2);
+                ctx.ellipse(fx, fy, 5, 13 - i * 2, -0.35 - i * 0.25, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.stroke();
             }
+            glanzlicht(-5, -14, 1.6, 5, -0.35, 0.8);
             ctx.restore();
 
             ctx.restore();
+        }
+
+        // Weicher Schatten von Glacier auf der Wiese: je höher, desto kleiner und blasser
+        function zeichneBodenschatten(cx, unterkante) {
+            const vorneVersatz = hintergrundZeit * 70;
+            const boden = huegelHoehe(cx + vorneVersatz, 355, 10, 70) + 10;
+            const abstand = Math.max(0, boden - unterkante);
+            const s = Math.max(0.35, 1 - abstand / 380);
+            const g = ctx.createRadialGradient(cx, boden, 2, cx, boden, 34 * s);
+            g.addColorStop(0, `rgba(30, 50, 40, ${0.35 * s})`);
+            g.addColorStop(1, 'rgba(30, 50, 40, 0)');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.ellipse(cx, boden, 34 * s, 8 * s, 0, 0, Math.PI * 2);
+            ctx.fill();
         }
 
         function zeichneFiligraneWolke(x, y, width, height) {
@@ -1545,7 +1649,13 @@
             konturText('Johanni und Glacier', W / 2, 92, 'bold 42px Arial', '#ffffff', '#6a2c8a', 8);
 
             // Glacier mit Johanni links, schwebt sanft
-            zeichneGrossesEinhorn(215, 228 + Math.sin(spielRahmen * 0.05) * 10, 2.3);
+            const schwebeY = 228 + Math.sin(spielRahmen * 0.05) * 10;
+            ctx.save();
+            ctx.translate(215, 0);
+            ctx.scale(2.2, 1);
+            zeichneBodenschatten(0, schwebeY + 60);
+            ctx.restore();
+            zeichneGrossesEinhorn(215, schwebeY, 2.3);
 
             const kx = 465, kb = 280;
             zeichneKnopf('Spiel beginnen', kx, 130, kb, '#ffdf00', spielStarten);
@@ -1728,6 +1838,8 @@
                     erstelleHindernis();
                     hindernisErzeugungsTimer = 0;
                 }
+
+                zeichneBodenschatten(einhorn.x + 35, einhorn.y + einhorn.height);
 
                 for (let i = hindernisse.length - 1; i >= 0; i--) {
                     const w = hindernisse[i];
