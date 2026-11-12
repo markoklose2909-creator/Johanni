@@ -2,7 +2,7 @@
 
 Ein Side-Scroller für Tablet, Handy und PC: Johanni reitet auf dem Einhorn Glacier, sammelt Sterne, zaubert gegen Trolle und Drachen und besiegt am Ende den Drachenkönig.
 
-**Spielen:** https://markoklose2909-creator.github.io/Johanni/
+**Spielen:** https://sternenreiter2026.github.io/Johanni/
 
 ## Installieren als App
 - **Android (Chrome / Firefox):** Link öffnen → Menü → „App installieren“
