@@ -129,7 +129,7 @@
         const ctx = canvas.getContext('2d');
 
         // Bei jeder Änderung hochzählen – steht klein unten rechts im Hauptmenü
-        const SPIEL_VERSION = '3.1 (Trolle)';
+        const SPIEL_VERSION = '3.2 (Trolle mit Kontur)';
 
         // Ältere Browser (z. B. Firefox auf Fire-Tablets) kennen roundRect noch nicht.
         // Ohne diese Ergänzung bricht das Zeichnen der Knöpfe ab.
@@ -2334,7 +2334,7 @@
         function zeichneFels(f) {
             if (trollAtlas.bereit && f.r > 0) {
                 const [x, y, b, h] = TROLL_TEILE[f.r >= 16 ? 'fels_mittel' : 'fels_klein'];
-                const bb = f.r * 2.5, hh = bb * h / b;
+                const bb = f.r * 2.5 * b / (b - 2 * TROLL_RAND), hh = bb * h / b;
                 ctx.save();
                 ctx.translate(f.x, f.y);
                 ctx.rotate(f.drehung);
@@ -2415,7 +2415,8 @@
         }
 
         // ----- Trolle als Bilder (trolle.png), sonst Code-Zeichnung -----
-        const TROLL_TEILE = {"gehenA": [0, 0, 141, 148], "gehenB": [145, 0, 147, 151], "werfen": [296, 0, 170, 191], "getroffen": [470, 0, 169, 167], "k_stehen": [643, 0, 216, 200], "k_werfen": [0, 204, 183, 249], "k_stampfen": [187, 204, 274, 172], "k_getroffen": [465, 204, 221, 167], "fels_gross": [690, 204, 83, 51], "fels_mittel": [777, 204, 63, 35], "fels_klein": [844, 204, 40, 21]};
+        const TROLL_TEILE = {"gehenA": [0, 0, 153, 160], "gehenB": [155, 0, 159, 163], "werfen": [316, 0, 182, 203], "getroffen": [500, 0, 181, 179], "k_stehen": [683, 0, 228, 212], "k_werfen": [0, 214, 195, 261], "k_stampfen": [197, 214, 286, 184], "k_getroffen": [485, 214, 233, 179], "fels_gross": [720, 214, 95, 63], "fels_mittel": [817, 214, 75, 47], "fels_klein": [894, 214, 52, 33]};
+        const TROLL_RAND = 6;   // Rand um jede Pose (für die dunkle Kontur)
         const trollAtlas = { bild: new Image(), bereit: false };
         trollAtlas.bild.onload = () => { trollAtlas.bereit = true; };
         if (location.protocol.startsWith('http')) trollAtlas.bild.src = 'trolle.png';
@@ -2426,7 +2427,17 @@
             const bb = b * massstab, hh = h * massstab;
             ctx.save();
             ctx.globalAlpha *= alpha == null ? 1 : alpha;
-            ctx.drawImage(trollAtlas.bild, x, y, b, h, fussX - bb / 2, fussY - hh, bb, hh);
+            // Schatten am Boden, damit sich die Figur von der Wiese abhebt
+            const sb = (b - 2 * TROLL_RAND) * massstab * 0.42;
+            const schatten = ctx.createRadialGradient(fussX, fussY, 1, fussX, fussY, sb);
+            schatten.addColorStop(0, 'rgba(20, 15, 8, 0.55)');
+            schatten.addColorStop(1, 'rgba(20, 15, 8, 0)');
+            ctx.fillStyle = schatten;
+            ctx.beginPath();
+            ctx.ellipse(fussX, fussY, sb, sb * 0.22, 0, 0, Math.PI * 2);
+            ctx.fill();
+            const rand = TROLL_RAND * massstab;
+            ctx.drawImage(trollAtlas.bild, x, y, b, h, fussX - bb / 2, fussY - hh + rand, bb, hh);
             ctx.restore();
         }
 
