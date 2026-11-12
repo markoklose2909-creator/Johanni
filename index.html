@@ -129,7 +129,7 @@
         const ctx = canvas.getContext('2d');
 
         // Bei jeder Änderung hochzählen – steht klein unten rechts im Hauptmenü
-        const SPIEL_VERSION = '3.0 (Einhornzauber)';
+        const SPIEL_VERSION = '3.1 (Trolle)';
 
         // Ältere Browser (z. B. Firefox auf Fire-Tablets) kennen roundRect noch nicht.
         // Ohne diese Ergänzung bricht das Zeichnen der Knöpfe ab.
@@ -2292,7 +2292,7 @@
                     t.wurfTimer -= dt;
                     if (t.wurfTimer <= 0.55 && t.ausholen <= 0) t.ausholen = 0.55;
                     if (t.wurfTimer <= 0) {
-                        wirfFelsen(t.x + 10, t.y + 8, einhorn.x + 40, einhorn.y + 25, 0.9 + Math.random() * 0.3);
+                        wirfFelsen(t.x + 14, t.y - 4, einhorn.x + 40, einhorn.y + 25, 0.9 + Math.random() * 0.3);
                         t.wurfTimer = 2.6 + Math.random() * 1.4 - Math.min(level, 6) * 0.15;
                         t.ausholen = 0;
                     }
@@ -2332,6 +2332,16 @@
         }
 
         function zeichneFels(f) {
+            if (trollAtlas.bereit && f.r > 0) {
+                const [x, y, b, h] = TROLL_TEILE[f.r >= 16 ? 'fels_mittel' : 'fels_klein'];
+                const bb = f.r * 2.5, hh = bb * h / b;
+                ctx.save();
+                ctx.translate(f.x, f.y);
+                ctx.rotate(f.drehung);
+                ctx.drawImage(trollAtlas.bild, x, y, b, h, -bb / 2, -hh / 2, bb, hh);
+                ctx.restore();
+                return;
+            }
             ctx.save();
             ctx.translate(f.x, f.y);
             ctx.rotate(f.drehung);
@@ -2404,7 +2414,37 @@
             ctx.restore();
         }
 
+        // ----- Trolle als Bilder (trolle.png), sonst Code-Zeichnung -----
+        const TROLL_TEILE = {"gehenA": [0, 0, 141, 148], "gehenB": [145, 0, 147, 151], "werfen": [296, 0, 170, 191], "getroffen": [470, 0, 169, 167], "k_stehen": [643, 0, 216, 200], "k_werfen": [0, 204, 183, 249], "k_stampfen": [187, 204, 274, 172], "k_getroffen": [465, 204, 221, 167], "fels_gross": [690, 204, 83, 51], "fels_mittel": [777, 204, 63, 35], "fels_klein": [844, 204, 40, 21]};
+        const trollAtlas = { bild: new Image(), bereit: false };
+        trollAtlas.bild.onload = () => { trollAtlas.bereit = true; };
+        if (location.protocol.startsWith('http')) trollAtlas.bild.src = 'trolle.png';
+
+        // Pose zeichnen: Füße unten mittig auf (fussX, fussY)
+        function zeichneTrollPose(pose, fussX, fussY, massstab, alpha) {
+            const [x, y, b, h] = TROLL_TEILE[pose];
+            const bb = b * massstab, hh = h * massstab;
+            ctx.save();
+            ctx.globalAlpha *= alpha == null ? 1 : alpha;
+            ctx.drawImage(trollAtlas.bild, x, y, b, h, fussX - bb / 2, fussY - hh, bb, hh);
+            ctx.restore();
+        }
+
         function zeichneTrolle() {
+            if (trollAtlas.bereit) {
+                const m = (TROLL_H * 1.18) / 148;
+                for (const t of trolle) {
+                    let pose = Math.floor(t.schritt / Math.PI) % 2 ? 'gehenA' : 'gehenB';
+                    if (t.ausholen > 0) pose = 'werfen';
+                    if (t.besiegt) pose = 'getroffen';
+                    let alpha = t.besiegt ? Math.max(0, 1 - t.besiegtZeit / 0.6) : 1;
+                    if (t.blink > 0 && Math.floor(spielRahmen / 3) % 2 === 0) alpha *= 0.5;
+                    zeichneTrollPose(pose, t.x + TROLL_B / 2, t.y + TROLL_H + 3, m, alpha);
+                }
+                for (const f of felsen) zeichneFels(f);
+                zeichneStosswellen();
+                return;
+            }
             for (const t of trolle) {
                 ctx.save();
                 if (t.besiegt) {
@@ -2417,6 +2457,10 @@
                 ctx.restore();
             }
             for (const f of felsen) zeichneFels(f);
+            zeichneStosswellen();
+        }
+
+        function zeichneStosswellen() {
             for (const w of stosswellen) {
                 ctx.save();
                 const g = ctx.createLinearGradient(0, BODEN_Y - w.h, 0, BODEN_Y);
@@ -2484,7 +2528,7 @@
             k.wurfTimer -= dt;
             if (k.wurfTimer <= 0.6 && k.ausholen <= 0) k.ausholen = 0.6;
             if (k.wurfTimer <= 0) {
-                const vx = k.x + 20, vy = k.y + 10;
+                const vx = k.x + 45, vy = k.y - 5;
                 wirfFelsen(vx, vy, einhorn.x + 40, einhorn.y + 25, 1.1, 17);
                 if (wut > 0.45) {
                     wirfFelsen(vx, vy, einhorn.x + 40, Math.max(30, einhorn.y - 70), 1.15, 14);
@@ -2494,10 +2538,12 @@
                 k.ausholen = 0;
             }
             if (k.ausholen > 0) k.ausholen -= dt;
+            if (k.stampfAnim > 0) k.stampfAnim -= dt;
             // Stampfen: Bodenwelle rollt nach links – Glacier muss hochfliegen
             k.stampfTimer -= dt;
             if (k.stampfTimer <= 0) {
                 stosswellen.push({ x: k.x, h: 26 });
+                k.stampfAnim = 0.5;
                 Klang.spiele('stampf');
                 wackeln(7, 0.35);
                 k.stampfTimer = 5.5 - wut * 2;
@@ -2528,6 +2574,16 @@
         function zeichneTrollKoenig() {
             const k = trollKoenig;
             if (!k) return;
+            if (trollAtlas.bereit) {
+                let pose = 'k_stehen';
+                if (k.ausholen > 0) pose = 'k_werfen';
+                if (k.stampfAnim > 0) pose = 'k_stampfen';
+                if (k.besiegt) pose = 'k_getroffen';
+                let alpha = k.besiegt ? Math.max(0, 1 - Math.max(0, k.besiegtZeit - 1.2)) : 1;
+                if (k.blink > 0 && Math.floor(spielRahmen / 3) % 2 === 0) alpha *= 0.55;
+                zeichneTrollPose(pose, k.x + TK_B / 2, k.y + TK_H + 4, (TK_H * 1.12) / 200, alpha);
+                return;
+            }
             ctx.save();
             if (k.besiegt) {
                 ctx.globalAlpha = Math.max(0, 1 - k.besiegtZeit / 2.2);
