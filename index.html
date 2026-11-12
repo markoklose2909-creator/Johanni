@@ -129,7 +129,7 @@
         const ctx = canvas.getContext('2d');
 
         // Bei jeder Änderung hochzählen – steht klein unten rechts im Hauptmenü
-        const SPIEL_VERSION = '3.6 (Sterne nur sammeln)';
+        const SPIEL_VERSION = '3.7 (15 Sterne pro Level)';
 
         // Ältere Browser (z. B. Firefox auf Fire-Tablets) kennen roundRect noch nicht.
         // Ohne diese Ergänzung bricht das Zeichnen der Knöpfe ab.
@@ -2682,7 +2682,7 @@
 
         const TROLL_INFO = {
             titel: 'Zwischenboss: Der Trollkönig!',
-            unter: 'Halbzeit – 50 Sterne geschafft!',
+            unter: 'Halbzeit – 75 Sterne geschafft!',
             zeilen: ['Er wirft Felsbrocken – weiche aus oder zerzaubere sie.',
                      'Wenn er stampft, rollt eine Bodenwelle: flieg hoch!',
                      'Halte den Zauber-Knopf gedrückt und triff ihn!'],
@@ -2880,7 +2880,7 @@
                 2: ['Neu: Sternen-Magnet! Er zieht Sterne zu dir.', 'Achtung: Die Trolle werfen jetzt Felsbrocken – zerzaubere sie!'],
                 3: ['Achtung, Drachen! Sie fliegen in Wellen auf dich zu.', 'Ein „!“ am rechten Rand warnt dich vorher.'],
                 4: ['Neu: Schutzschild! Er fängt einen Treffer ab.', 'Die Drachen werden schneller.'],
-                5: ['Die Drachen kommen jetzt öfter.', 'Bei 50 Sternen wartet der Trollkönig …'],
+                5: ['Die Drachen kommen jetzt öfter.', 'Bei 75 Sternen wartet der Trollkönig …'],
                 6: ['Weiter geht die Reise! Die Trolle sind jetzt zäher.', 'Die Drachen werden noch schneller.'],
                 7: ['Ein Gewitter zieht auf – und rote Drachen verfolgen dich!', 'Weiche ihnen geschickt aus.'],
                 8: ['Noch mehr rote Drachen!', 'Kombos geben Extra-Sterne.'],
@@ -2897,7 +2897,7 @@
 
         const FINALE_INFO = {
             titel: 'Finale: Der Drachenkönig!',
-            unter: 'Du hast 100 Sterne – jetzt wird es ernst!',
+            unter: 'Du hast 150 Sterne – jetzt wird es ernst!',
             zeilen: ['Er spuckt Feuerbälle – weiche ihnen aus.',
                      'Zaubere, was das Zeug hält! Mit Regenbogen-Kraft wird dein Zauber dreifach,',
                      'und wer dann in ihn hineinfliegt, trifft ihn besonders hart.'],
@@ -3291,16 +3291,18 @@
                 return;
             }
 
-            // Sterne zählen für die Kombo
-            komboZaehler++;
-            komboTimer = 1.8;
+            // Regenbogen-Stern: macht unverwundbar, zählt aber nicht als Stern
             if (st.typ === 'kraft') {
                 unverwundbarTimer = 420;
-                score += 2;
                 Klang.spiele('kraft');
                 partikelExplosion(x, y, 24, ['#ff6ad5', '#ffd34d', '#7dffe0', '#8f7dff', '#ffffff'], 'stern', 300);
-                schwebeText(x, y - 10, bossPhase ? 'Regenbogen-Kraft! Greif an!' : '+2 Regenbogen!', '#7dffe0', 20);
-            } else {
+                schwebeText(x, y - 10, (bossPhase || trollKoenig) ? 'Regenbogen-Kraft! Greif an!' : 'Regenbogen-Kraft!', '#7dffe0', 20);
+                return;
+            }
+            // normale Sterne zählen für die Kombo
+            komboZaehler++;
+            komboTimer = 1.8;
+            {
                 score += 1;
                 Klang.spiele('stern', 1 + Math.min(komboZaehler, 12) * 0.04);
                 partikelExplosion(x, y, 10, ['#ffe14d', '#fff6b0', '#ffffff'], 'stern', 200);
@@ -3315,18 +3317,23 @@
             pruefeFortschritt();
         }
 
+        // Spielverlauf: 15 Sterne pro Level, Trollkönig zur Halbzeit, Drachenkönig am Ende
+        const STERNE_PRO_LEVEL = 15;
+        const STERNE_TROLLKOENIG = 5 * STERNE_PRO_LEVEL;    // 75 – Beginn Level 6
+        const STERNE_FINALE = 10 * STERNE_PRO_LEVEL;        // 150
+
         // Level-Aufstiege, Zwischenboss und Finale
         function pruefeFortschritt() {
             if (bossPhase || trollKoenig || levelUpAusstehend) return;
-            if (score >= 100) {
+            if (score >= STERNE_FINALE) {
                 levelUpAusstehend = FINALE_INFO;
                 return;
             }
-            if (score >= 50 && !trollKoenigBesiegt) {
+            if (score >= STERNE_TROLLKOENIG && !trollKoenigBesiegt) {
                 levelUpAusstehend = TROLL_INFO;
                 return;
             }
-            const neuesLevel = Math.min(10, Math.floor(score / 10) + 1);
+            const neuesLevel = Math.min(10, Math.floor(score / STERNE_PRO_LEVEL) + 1);
             if (neuesLevel > level) {
                 const alteWelt = weltFuerLevel(level);
                 level = neuesLevel;
@@ -3682,7 +3689,7 @@
                 ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'left';
                 ctx.font = '18px Spielschrift, Arial';
-                ctx.fillText('★ Sterne: ' + score + (bossPhase ? '' : ' / 100'), W - 188, 32);
+                ctx.fillText('★ Sterne: ' + score + (bossPhase ? '' : ' / ' + STERNE_FINALE), W - 188, 32);
                 ctx.fillText(bossPhase ? 'Finale' : (trollKoenig ? 'Boss' : 'Level: ' + level), W - 188, 56);
                 for (let h = 0; h < MAX_HERZEN; h++) {
                     zeichneHerz(W - 78 + h * 24, 50, 18, h < herzen);
