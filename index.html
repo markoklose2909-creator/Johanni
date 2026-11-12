@@ -68,6 +68,29 @@
         }
         .rundKnopf svg { width: 60%; height: 60%; }
         #pauseKnopf { left: 58px; display: none; }
+        #zauberKnopf {
+            position: absolute;
+            right: 14px;
+            bottom: 14px;
+            width: 76px;
+            height: 76px;
+            border-radius: 50%;
+            border: 3px solid #f2d27a;
+            background: radial-gradient(circle at 35% 30%, rgba(190, 240, 255, 0.95), rgba(90, 120, 230, 0.85) 55%, rgba(50, 30, 120, 0.9));
+            box-shadow: 0 0 14px rgba(160, 220, 255, 0.7);
+            opacity: 0.88;
+            color: #ffffff;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: none;
+            user-select: none;
+        }
+        #zauberKnopf svg { width: 62%; height: 62%; }
+        #zauberKnopf.gedrueckt { transform: scale(0.92); box-shadow: 0 0 24px rgba(200, 240, 255, 1); }
 
         /* BUG FIX 1: Nur auf echten Mobilgeräten (max-width: 768px) im
            Hochformat ausblenden. Vorher wurde das Spiel auch in einem
@@ -93,6 +116,9 @@
     <div id="gameContainer">
         <canvas id="gameCanvas" width="800" height="400"></canvas>
         <button id="tonKnopf" class="rundKnopf" aria-label="Ton umschalten"></button>
+        <button id="zauberKnopf" aria-label="Zaubern" title="Zaubern">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1.5l2.2 6.3 6.6.2-5.2 4.1 1.9 6.4L12 14.8l-5.5 3.7 1.9-6.4L3.2 8l6.6-.2z"/><circle cx="19.5" cy="19.5" r="1.6"/><circle cx="4" cy="20" r="1.1"/></svg>
+        </button>
         <button id="pauseKnopf" class="rundKnopf" aria-label="Pause" title="Pause">
             <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
         </button>
@@ -103,7 +129,7 @@
         const ctx = canvas.getContext('2d');
 
         // Bei jeder Änderung hochzählen – steht klein unten rechts im Hauptmenü
-        const SPIEL_VERSION = '2.3 (Gewitterwolken)';
+        const SPIEL_VERSION = '3.0 (Einhornzauber)';
 
         // Ältere Browser (z. B. Firefox auf Fire-Tablets) kennen roundRect noch nicht.
         // Ohne diese Ergänzung bricht das Zeichnen der Knöpfe ab.
@@ -148,6 +174,14 @@
 
             // runde Knöpfe mitwachsen lassen
             const k = Math.round(Math.max(30, Math.min(72, 40 * anzeigeMassstab)));
+            const zk = document.getElementById('zauberKnopf');
+            if (zk) {
+                const g = Math.round(Math.max(60, Math.min(130, 80 * anzeigeMassstab)));
+                zk.style.width = g + 'px';
+                zk.style.height = g + 'px';
+                zk.style.right = Math.round(14 * anzeigeMassstab) + 'px';
+                zk.style.bottom = Math.round(14 * anzeigeMassstab) + 'px';
+            }
             document.querySelectorAll('.rundKnopf').forEach((el, i) => {
                 el.style.width = k + 'px';
                 el.style.height = k + 'px';
@@ -259,6 +293,12 @@
                 schild:   n => [392, 523, 659, 784].forEach((f, i) => ton(f, n + i * 0.04, 0.35, 'sine', 0.14)),
                 schildWeg: n => { ton(1200, n, 0.25, 'triangle', 0.15, 300); ton(800, n + 0.05, 0.2, 'square', 0.04, 200); },
                 feuer:    n => ton(180, n, 0.35, 'sawtooth', 0.09, 70),
+                zauber:   n => { ton(1400, n, 0.12, 'sine', 0.07, 2600); ton(700, n, 0.1, 'triangle', 0.05, 1400); },
+                superzauber: n => { ton(1100, n, 0.15, 'square', 0.04, 2800); ton(1650, n + 0.02, 0.15, 'sine', 0.06, 3300); },
+                zauberTreffer: n => { ton(520, n, 0.12, 'square', 0.06, 180); ton(1300, n, 0.08, 'triangle', 0.08); },
+                trollWeg: n => { ton(160, n, 0.3, 'sawtooth', 0.09, 60); ton(880, n + 0.1, 0.15, 'triangle', 0.1); },
+                wurf:     n => ton(260, n, 0.25, 'triangle', 0.06, 120),
+                stampf:   n => { ton(55, n, 0.6, 'sawtooth', 0.16, 30); ton(90, n, 0.4, 'square', 0.06, 40); },
                 donner:   n => { ton(70, n + 0.15, 1.2, 'sawtooth', 0.08, 35); ton(52, n + 0.25, 1.4, 'triangle', 0.14, 30); },
                 bossTreffer: n => { ton(150, n, 0.5, 'square', 0.12, 50); [880, 1175].forEach((f, i) => ton(f, n + 0.1 + i * 0.08, 0.2, 'triangle', 0.15)); },
                 bossBesiegt: n => [392, 494, 587, 784, 988, 1175, 1568].forEach((f, i) => ton(f, n + i * 0.09, 0.3, 'square', 0.07)),
@@ -288,7 +328,7 @@
 
             function planeMusik() {
                 if (!musikLaeuft) return;
-                const tempo = 118 + (level - 1) * 4 + (bossPhase ? 26 : 0);
+                const tempo = 118 + (level - 1) * 4 + (bossPhase ? 26 : 0) + (trollKoenig ? 18 : 0);
                 const achtel = 60 / tempo / 2;
                 while (naechsteNote < ac.currentTime + 0.25) {
                     const m = MELODIE[schritt];
@@ -967,6 +1007,25 @@
             Klang.spiele('klick');
             pausieren();
         }
+        const zauberKnopf = document.getElementById('zauberKnopf');
+        function zauberStart(e) {
+            e.stopPropagation();
+            if (e.cancelable) e.preventDefault();
+            Klang.start();
+            zauberGedrueckt = true;
+            zauberKnopf.classList.add('gedrueckt');
+            zaubern();
+        }
+        function zauberEnde(e) {
+            if (e) e.stopPropagation();
+            zauberGedrueckt = false;
+            zauberKnopf.classList.remove('gedrueckt');
+        }
+        zauberKnopf.addEventListener('touchstart', zauberStart, { passive: false });
+        zauberKnopf.addEventListener('mousedown', zauberStart);
+        zauberKnopf.addEventListener('touchend', zauberEnde);
+        zauberKnopf.addEventListener('touchcancel', zauberEnde);
+        window.addEventListener('mouseup', () => zauberEnde());
         pauseKnopf.addEventListener('touchstart', pauseGedrueckt, { passive: false });
         pauseKnopf.addEventListener('mousedown', pauseGedrueckt);
 
@@ -978,7 +1037,11 @@
         window.onload = function() {
             window.addEventListener('mousedown', steuerungAusloesen, { passive: false });
             window.addEventListener('touchstart', steuerungAusloesen, { passive: false });
+            window.addEventListener('keyup', function(e) {
+                if (e.code === 'KeyX' || e.code === 'Enter' || e.code === 'ArrowRight') zauberGedrueckt = false;
+            });
             window.addEventListener('keydown', function(e) {
+                if (e.repeat && (e.code === 'KeyX' || e.code === 'Enter' || e.code === 'ArrowRight')) return;
                 const gesperrt = performance.now() < eingabeGesperrtBis;
                 if (e.code === 'Space') {
                     e.preventDefault();
@@ -988,6 +1051,9 @@
                     else if (zustand === 'pause') weiterSpielen();
                     else if (zustand === 'levelup') weiterNachLevelUp();
                     else if ((zustand === 'gameover' || zustand === 'sieg') && !gesperrt) spielStarten();
+                } else if (e.code === 'KeyX' || e.code === 'Enter' || e.code === 'ArrowRight') {
+                    e.preventDefault();
+                    if (zustand === 'spiel') { zauberGedrueckt = true; zaubern(); }
                 } else if (e.code === 'Escape' || e.code === 'KeyP') {
                     if (zustand === 'spiel') pausieren();
                     else if (zustand === 'pause') weiterSpielen();
@@ -1988,7 +2054,7 @@
 
         function aktualisiereDrachen() {
             const e = drachenEinstellung(level);
-            if (e && !bossPhase) {
+            if (e && !bossPhase && !trollKoenig) {
                 drachenTimer += dt;
                 if (drachenTimer >= e.takt) {
                     erstelleDrache(e);
@@ -2044,6 +2110,460 @@
                 }
             }
         }
+
+        // ===== EINHORNZAUBER =====
+        // Johanni zaubert vom Rücken aus nach vorn. Zauber-Knopf gedrückt halten = Dauerfeuer.
+        let zauberGeschosse = [];
+        let zauberAbklingzeit = 0;
+        let zauberGedrueckt = false;
+        const ZAUBER_TAKT = 0.32, SUPER_TAKT = 0.2;
+
+        function zaubern() {
+            if (zustand !== 'spiel' || zauberAbklingzeit > 0) return;
+            const superzauber = unverwundbarTimer > 0;
+            zauberAbklingzeit = superzauber ? SUPER_TAKT : ZAUBER_TAKT;
+            const sx = einhorn.x + 82, sy = einhorn.y + 6;
+            const winkel = superzauber ? [-0.2, 0, 0.2] : [0];
+            for (const w of winkel) {
+                zauberGeschosse.push({
+                    x: sx, y: sy, vx: Math.cos(w) * 680, vy: Math.sin(w) * 680,
+                    farbe: superzauber ? `hsl(${(spielRahmen * 8 + w * 300) % 360}, 100%, 70%)` : '#9fe8ff',
+                    leben: 1.4, staerke: superzauber ? 2 : 1
+                });
+            }
+            Klang.spiele(superzauber ? 'superzauber' : 'zauber');
+            partikelExplosion(sx, sy, 5, ['#ffffff', '#bff4ff'], 'stern', 120);
+        }
+
+        // Trefferprüfung Kreis gegen Rechteck
+        function geschossTrifft(g, x, y, b, h) {
+            return g.x + 8 > x && g.x - 8 < x + b && g.y + 8 > y && g.y - 8 < y + h;
+        }
+
+        function aktualisiereZauber() {
+            if (zauberAbklingzeit > 0) zauberAbklingzeit -= dt;
+            if (zauberGedrueckt) zaubern();
+
+            for (let i = zauberGeschosse.length - 1; i >= 0; i--) {
+                const g = zauberGeschosse[i];
+                g.x += g.vx * dt;
+                g.y += g.vy * dt;
+                g.leben -= dt;
+                if (Math.random() < 0.7) {
+                    neuesPartikel({ x: g.x - 6, y: g.y + (Math.random() - 0.5) * 6, vx: -80, vy: (Math.random() - 0.5) * 30,
+                        leben: 0.3, max: 0.3, farbe: g.farbe, r: 2, form: 'stern', schwere: 0 });
+                }
+                let getroffen = false;
+
+                // Drachen
+                for (const d of drachen) {
+                    if (d.verscheucht || d.warnung > 0) continue;
+                    if (geschossTrifft(g, d.x + 6, d.y + 4, DRACHE_B - 6, DRACHE_H - 4)) {
+                        d.lp = (d.lp == null ? (d.verfolgt ? 2 : 1) : d.lp) - g.staerke;
+                        d.blink = 0.25;
+                        getroffen = true;
+                        if (d.lp <= 0) {
+                            d.verscheucht = true;
+                            gegnerBesiegt(d.x + DRACHE_B / 2, d.y + DRACHE_H / 2, d.verfolgt ? 2 : 1, ['#7dffe0', '#ffffff', '#b48cff']);
+                        } else {
+                            Klang.spiele('zauberTreffer');
+                        }
+                        break;
+                    }
+                }
+                // Trolle
+                if (!getroffen) for (const t of trolle) {
+                    if (t.besiegt) continue;
+                    if (geschossTrifft(g, t.x, t.y, TROLL_B, TROLL_H)) {
+                        t.lp -= g.staerke;
+                        t.blink = 0.25;
+                        getroffen = true;
+                        if (t.lp <= 0) {
+                            t.besiegt = true;
+                            gegnerBesiegt(t.x + TROLL_B / 2, t.y + TROLL_H / 2, 1, ['#c9b48a', '#ffffff', '#8fbf6a']);
+                        } else Klang.spiele('zauberTreffer');
+                        break;
+                    }
+                }
+                // Felsbrocken
+                if (!getroffen) for (let j = felsen.length - 1; j >= 0; j--) {
+                    const f = felsen[j];
+                    if (Math.hypot(g.x - f.x, g.y - f.y) < f.r + 8) {
+                        felsen.splice(j, 1);
+                        partikelExplosion(f.x, f.y, 10, ['#9a8f84', '#c9bfb2', '#6e655c'], 'kreis', 200);
+                        Klang.spiele('zauberTreffer');
+                        getroffen = true;
+                        break;
+                    }
+                }
+                // Trollkönig
+                if (!getroffen && trollKoenig && !trollKoenig.besiegt && geschossTrifft(g, trollKoenig.x + 20, trollKoenig.y + 10, TK_B - 30, TK_H - 10)) {
+                    getroffen = true;
+                    trollKoenigTreffer(g.staerke);
+                }
+                // Drachenkönig
+                if (!getroffen && boss && !boss.besiegt && boss.x < W - 60 && geschossTrifft(g, boss.x + 10, boss.y + 10, BOSS_B - 10, BOSS_H - 15)) {
+                    getroffen = true;
+                    drachenKoenigTreffer(g.staerke);
+                }
+
+                if (getroffen) {
+                    partikelExplosion(g.x, g.y, 6, [g.farbe, '#ffffff'], 'stern', 160);
+                    zauberGeschosse.splice(i, 1);
+                } else if (g.leben <= 0 || g.x > W + 20) {
+                    zauberGeschosse.splice(i, 1);
+                }
+            }
+        }
+
+        function gegnerBesiegt(x, y, punkte, farben) {
+            score += punkte;
+            Klang.spiele('trollWeg');
+            partikelExplosion(x, y, 18, farben, 'stern', 260);
+            schwebeText(x, y - 20, '+' + punkte, '#ffe14d', 22);
+            pruefeFortschritt();
+        }
+
+        function zeichneZauber() {
+            for (const g of zauberGeschosse) {
+                ctx.save();
+                const r = g.staerke > 1 ? 9 : 7;
+                const glut = ctx.createRadialGradient(g.x, g.y, 1, g.x, g.y, r * 2.4);
+                glut.addColorStop(0, '#ffffff');
+                glut.addColorStop(0.35, g.farbe);
+                glut.addColorStop(1, 'rgba(120, 160, 255, 0)');
+                ctx.fillStyle = glut;
+                ctx.beginPath();
+                ctx.arc(g.x, g.y, r * 2.4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#ffffff';
+                zeichneFunkeln(g.x, g.y, r * 0.55);
+                ctx.restore();
+            }
+        }
+
+        // ===== TROLLE =====
+        // Laufen am Boden auf Glacier zu, ab Level 2 werfen sie Felsbrocken im Bogen.
+        const TROLL_B = 58, TROLL_H = 74;
+        const FELS_SCHWERE = 520;
+        let trolle = [];
+        let felsen = [];
+        let trollTimer = 0;
+        let stosswellen = [];
+
+        function trollTakt(lvl) {
+            if (lvl >= 7) return 3.0;                    // im Gewitter übernehmen die Drachen
+            return Math.max(1.9, 3.6 - (lvl - 1) * 0.35);
+        }
+
+        function erstelleTroll() {
+            trolle.push({
+                x: W + 20, y: BODEN_Y - TROLL_H, lp: level >= 6 ? 3 : 2, blink: 0,
+                wurfTimer: 1.0 + Math.random() * 1.2, ausholen: 0, besiegt: false, besiegtZeit: 0,
+                schritt: Math.random() * 10, eigenTempo: 30 + Math.random() * 30
+            });
+        }
+
+        function wirfFelsen(vonX, vonY, zielX, zielY, flugzeit, r) {
+            const vx = (zielX - vonX) / flugzeit;
+            const vy = (zielY - vonY - 0.5 * FELS_SCHWERE * flugzeit * flugzeit) / flugzeit;
+            felsen.push({ x: vonX, y: vonY, vx: vx, vy: vy, r: r || 13, drehung: 0, dreh: (Math.random() - 0.5) * 8 });
+            Klang.spiele('wurf');
+        }
+
+        function aktualisiereTrolle() {
+            if (!bossPhase && !trollKoenig) {
+                trollTimer += dt;
+                if (trollTimer >= trollTakt(level)) { erstelleTroll(); trollTimer = 0; }
+            }
+            for (let i = trolle.length - 1; i >= 0; i--) {
+                const t = trolle[i];
+                if (t.blink > 0) t.blink -= dt;
+                if (t.besiegt) {
+                    t.besiegtZeit += dt;
+                    t.x -= weltTempo * dt;
+                    if (t.besiegtZeit > 0.6) trolle.splice(i, 1);
+                    continue;
+                }
+                t.x -= (weltTempo + t.eigenTempo) * dt;
+                t.schritt += dt * 8;
+                // werfen (ab Level 2), mit sichtbarem Ausholen
+                if (level >= 2 && t.x > einhorn.x + 180 && t.x < W - 40) {
+                    t.wurfTimer -= dt;
+                    if (t.wurfTimer <= 0.55 && t.ausholen <= 0) t.ausholen = 0.55;
+                    if (t.wurfTimer <= 0) {
+                        wirfFelsen(t.x + 10, t.y + 8, einhorn.x + 40, einhorn.y + 25, 0.9 + Math.random() * 0.3);
+                        t.wurfTimer = 2.6 + Math.random() * 1.4 - Math.min(level, 6) * 0.15;
+                        t.ausholen = 0;
+                    }
+                }
+                if (t.ausholen > 0) t.ausholen -= dt;
+                // Berührung
+                if (geschossTrifft({ x: t.x + TROLL_B / 2, y: t.y + TROLL_H / 2 }, einhorn.x - TROLL_B / 2 + 14, einhorn.y - TROLL_H / 2 + 10, einhorn.width + TROLL_B - 28, einhorn.height + TROLL_H - 18)) {
+                    if (unverwundbarTimer > 0) {
+                        t.besiegt = true;
+                        gegnerBesiegt(t.x + TROLL_B / 2, t.y + TROLL_H / 2, 1, ['#c9b48a', '#ffffff']);
+                    } else if (schutzTimer <= 0 && zustand === 'spiel') {
+                        treffer('troll');
+                    }
+                }
+                if (t.x < -TROLL_B - 20) trolle.splice(i, 1);
+            }
+            // Felsbrocken
+            for (let i = felsen.length - 1; i >= 0; i--) {
+                const f = felsen[i];
+                f.vy += FELS_SCHWERE * dt;
+                f.x += f.vx * dt;
+                f.y += f.vy * dt;
+                f.drehung += f.dreh * dt;
+                const nah = f.x + f.r > einhorn.x + 8 && f.x - f.r < einhorn.x + einhorn.width - 6 &&
+                            f.y + f.r > einhorn.y + 4 && f.y - f.r < einhorn.y + einhorn.height - 4;
+                if (nah) {
+                    felsen.splice(i, 1);
+                    partikelExplosion(f.x, f.y, 10, ['#9a8f84', '#c9bfb2'], 'kreis', 200);
+                    if (unverwundbarTimer <= 0 && schutzTimer <= 0 && zustand === 'spiel') treffer('fels');
+                    continue;
+                }
+                if (f.y > BODEN_Y + 10) {
+                    partikelExplosion(f.x, BODEN_Y, 8, ['#9a8f84', '#d8cdb8'], 'kreis', 140);
+                    felsen.splice(i, 1);
+                } else if (f.x < -40 || f.x > W + 60) felsen.splice(i, 1);
+            }
+        }
+
+        function zeichneFels(f) {
+            ctx.save();
+            ctx.translate(f.x, f.y);
+            ctx.rotate(f.drehung);
+            const r = f.r;
+            ctx.fillStyle = kugelVerlauf(0, 0, r * 1.2, '#cfc6ba', '#8f857a', '#4f4840');
+            ctx.beginPath();
+            ctx.moveTo(-r, -r * 0.2);
+            ctx.lineTo(-r * 0.5, -r);
+            ctx.lineTo(r * 0.5, -r * 0.9);
+            ctx.lineTo(r, -r * 0.1);
+            ctx.lineTo(r * 0.7, r * 0.8);
+            ctx.lineTo(-r * 0.3, r);
+            ctx.lineTo(-r * 0.9, r * 0.6);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(40, 34, 28, 0.6)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.2, -r * 0.6); ctx.lineTo(0, 0); ctx.lineTo(r * 0.4, r * 0.3);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // Troll (Code-Zeichnung; wird später durch Bilder ersetzt, wenn trolle.png vorhanden ist)
+        function zeichneTrollFigur(x, y, b, h, schritt, ausholen, blink, koenig) {
+            ctx.save();
+            if (blink > 0 && Math.floor(spielRahmen / 3) % 2 === 0) ctx.globalAlpha = 0.5;
+            ctx.translate(x, y);
+            ctx.scale(b / 58, h / 74);
+            const haut = kugelVerlauf(28, 30, 34, koenig ? '#a7b98a' : '#9fbf7e', koenig ? '#6f8a55' : '#6c9152', koenig ? '#3e5130' : '#3c5a2e');
+            const bein = Math.sin(schritt) * 4;
+            // Beine
+            ctx.fillStyle = '#4f3a28';
+            ctx.beginPath(); ctx.ellipse(20 + bein, 68, 7, 6, 0, 0, Math.PI * 2); ctx.ellipse(37 - bein, 68, 7, 6, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = haut;
+            ctx.fillRect(16 + bein, 52, 9, 14);
+            ctx.fillRect(33 - bein, 52, 9, 14);
+            // Körper mit Lendenschurz
+            ctx.beginPath(); ctx.ellipse(29, 40, 21, 19, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#7a5a3a';
+            ctx.beginPath(); ctx.moveTo(10, 46); ctx.lineTo(48, 46); ctx.lineTo(44, 58); ctx.lineTo(14, 58); ctx.closePath(); ctx.fill();
+            // Arm (beim Ausholen über dem Kopf mit Felsbrocken)
+            ctx.strokeStyle = haut; ctx.lineWidth = 8; ctx.lineCap = 'round';
+            ctx.beginPath();
+            if (ausholen > 0) { ctx.moveTo(14, 34); ctx.lineTo(10, 6); }
+            else { ctx.moveTo(12, 34); ctx.lineTo(4, 50 + bein * 0.5); }
+            ctx.stroke();
+            if (ausholen > 0) zeichneFels({ x: 10, y: -2, r: 9, drehung: 0 });
+            // Kopf
+            ctx.fillStyle = haut;
+            ctx.beginPath(); ctx.ellipse(22, 16, 15, 13, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = koenig ? '#58733f' : '#5a7d43';
+            ctx.beginPath(); ctx.ellipse(10, 20, 7, 6, 0, 0, Math.PI * 2); ctx.fill();   // große Nase
+            ctx.fillStyle = '#f2ecd0';
+            ctx.beginPath(); ctx.moveTo(12, 25); ctx.lineTo(15, 31); ctx.lineTo(17, 25); ctx.fill();  // Hauer
+            ctx.fillStyle = '#1e1a10';
+            ctx.beginPath(); ctx.arc(17, 12, 2.2, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#2a2414'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(13, 7); ctx.lineTo(21, 9); ctx.stroke();
+            ctx.fillStyle = '#4a6237';
+            ctx.beginPath(); ctx.ellipse(33, 9, 4, 7, 0.6, 0, Math.PI * 2); ctx.fill();    // Ohr
+            if (koenig) {
+                // Keule und Krone
+                ctx.strokeStyle = '#5b4026'; ctx.lineWidth = 7;
+                ctx.beginPath(); ctx.moveTo(46, 40); ctx.lineTo(56, 8); ctx.stroke();
+                ctx.fillStyle = '#6b4c2f'; ctx.beginPath(); ctx.ellipse(57, 4, 8, 10, 0.3, 0, Math.PI * 2); ctx.fill();
+                zeichneKrone(22, 0, 18);
+            }
+            ctx.restore();
+        }
+
+        function zeichneTrolle() {
+            for (const t of trolle) {
+                ctx.save();
+                if (t.besiegt) {
+                    ctx.globalAlpha = Math.max(0, 1 - t.besiegtZeit / 0.6);
+                    ctx.translate(t.x + TROLL_B / 2, t.y + TROLL_H);
+                    ctx.rotate(-t.besiegtZeit * 1.5);
+                    ctx.translate(-(t.x + TROLL_B / 2), -(t.y + TROLL_H));
+                }
+                zeichneTrollFigur(t.x, t.y, TROLL_B, TROLL_H, t.schritt, t.ausholen, t.blink, false);
+                ctx.restore();
+            }
+            for (const f of felsen) zeichneFels(f);
+            for (const w of stosswellen) {
+                ctx.save();
+                const g = ctx.createLinearGradient(0, BODEN_Y - w.h, 0, BODEN_Y);
+                g.addColorStop(0, 'rgba(220, 200, 160, 0)');
+                g.addColorStop(1, 'rgba(200, 175, 130, 0.85)');
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.moveTo(w.x - 30, BODEN_Y);
+                ctx.quadraticCurveTo(w.x, BODEN_Y - w.h * 2, w.x + 30, BODEN_Y);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // ===== ZWISCHENBOSS: TROLLKÖNIG (bei 50 Sternen) =====
+        // Die Welt steht still, Glacier kann nur hoch und runter ausweichen.
+        const TK_B = 130, TK_H = 160, TK_LEBEN = 14;
+        let trollKoenig = null;
+        let trollKoenigBesiegt = false;
+
+        function starteTrollKoenig() {
+            drachen.forEach(d => { d.verscheucht = true; d.warnung = 0; });
+            trolle.forEach(t => { t.besiegt = true; });
+            trollKoenig = { x: W + 30, y: BODEN_Y - TK_H, leben: TK_LEBEN, blink: 0, wurfTimer: 2.2, stampfTimer: 5, ausholen: 0,
+                            schritt: 0, besiegt: false, besiegtZeit: 0, kraftTimer: 4 };
+            wackeln(6, 0.5);
+        }
+
+        function trollKoenigTreffer(staerke) {
+            const k = trollKoenig;
+            k.leben -= staerke;
+            k.blink = 0.3;
+            Klang.spiele('zauberTreffer');
+            if (k.leben <= 0) {
+                k.besiegt = true;
+                felsen = [];
+                stosswellen = [];
+                Klang.spiele('bossBesiegt');
+                wackeln(10, 0.6);
+                score += 5;
+                schwebeText(W / 2, 170, 'Der Trollkönig ist besiegt!  +5', '#ffe14d', 30);
+            }
+        }
+
+        function aktualisiereTrollKoenig() {
+            const k = trollKoenig;
+            if (!k) return;
+            if (k.blink > 0) k.blink -= dt;
+            if (k.besiegt) {
+                k.besiegtZeit += dt;
+                if (Math.random() < 0.5) partikelExplosion(k.x + TK_B / 2, k.y + TK_H / 2, 3, ['#ffd34d', '#c9b48a', '#ffffff'], 'stern', 240);
+                if (k.besiegtZeit > 2.2) {
+                    trollKoenig = null;
+                    trollKoenigBesiegt = true;
+                    const alteWelt = weltFuerLevel(level);
+                    level = 6;
+                    levelUpAusstehend = levelInfo(6, weltFuerLevel(6) !== alteWelt ? weltFuerLevel(6) : null);
+                }
+                return;
+            }
+            const wut = 1 - k.leben / TK_LEBEN;
+            k.x += (W - TK_B - 120 - k.x) * Math.min(1, dt * 1.2);   // Platz lassen für den Zauber-Knopf
+            k.schritt += dt * 3;
+            // Felsbrocken werfen (mit Ausholen), später drei auf einmal
+            k.wurfTimer -= dt;
+            if (k.wurfTimer <= 0.6 && k.ausholen <= 0) k.ausholen = 0.6;
+            if (k.wurfTimer <= 0) {
+                const vx = k.x + 20, vy = k.y + 10;
+                wirfFelsen(vx, vy, einhorn.x + 40, einhorn.y + 25, 1.1, 17);
+                if (wut > 0.45) {
+                    wirfFelsen(vx, vy, einhorn.x + 40, Math.max(30, einhorn.y - 70), 1.15, 14);
+                    wirfFelsen(vx, vy, einhorn.x + 40, Math.min(BODEN_Y - 20, einhorn.y + 110), 1.05, 14);
+                }
+                k.wurfTimer = 2.4 - wut * 0.9;
+                k.ausholen = 0;
+            }
+            if (k.ausholen > 0) k.ausholen -= dt;
+            // Stampfen: Bodenwelle rollt nach links – Glacier muss hochfliegen
+            k.stampfTimer -= dt;
+            if (k.stampfTimer <= 0) {
+                stosswellen.push({ x: k.x, h: 26 });
+                Klang.spiele('stampf');
+                wackeln(7, 0.35);
+                k.stampfTimer = 5.5 - wut * 2;
+            }
+            // Regenbogen-Stern für den Superzauber regelmäßig nachliefern
+            k.kraftTimer -= dt;
+            if (k.kraftTimer <= 0) {
+                if (unverwundbarTimer <= 0 && !sterne.some(st => st.typ === 'kraft')) erstelleStern('kraft');
+                if (herzen < MAX_HERZEN && Math.random() < 0.35) erstelleStern('herz');
+                k.kraftTimer = 8;
+            }
+        }
+
+        function aktualisiereStosswellen() {
+            for (let i = stosswellen.length - 1; i >= 0; i--) {
+                const w = stosswellen[i];
+                w.x -= 300 * dt;
+                const trifft = w.x + 25 > einhorn.x + 10 && w.x - 25 < einhorn.x + einhorn.width - 10 &&
+                               einhorn.y + einhorn.height > BODEN_Y - w.h - 4;
+                if (trifft && !w.getroffen) {
+                    w.getroffen = true;
+                    if (unverwundbarTimer <= 0 && schutzTimer <= 0 && zustand === 'spiel') treffer('stampf');
+                }
+                if (w.x < -40) stosswellen.splice(i, 1);
+            }
+        }
+
+        function zeichneTrollKoenig() {
+            const k = trollKoenig;
+            if (!k) return;
+            ctx.save();
+            if (k.besiegt) {
+                ctx.globalAlpha = Math.max(0, 1 - k.besiegtZeit / 2.2);
+                ctx.translate(k.x + TK_B / 2, k.y + TK_H);
+                ctx.rotate(-Math.min(1.4, k.besiegtZeit));
+                ctx.translate(-(k.x + TK_B / 2), -(k.y + TK_H));
+            }
+            zeichneTrollFigur(k.x, k.y, TK_B, TK_H, k.schritt, k.ausholen, k.blink, true);
+            ctx.restore();
+        }
+
+        function zeichneTrollKoenigLeiste() {
+            const k = trollKoenig;
+            if (!k || k.besiegt) return;
+            ctx.fillStyle = 'rgba(14, 12, 34, 0.65)';
+            ctx.beginPath();
+            ctx.roundRect(W / 2 - 150, 10, 300, 40, 12);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '16px Spielschrift, Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText('Trollkönig', W / 2 - 138, 36);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.fillRect(W / 2 - 40, 24, 175, 10);
+            ctx.fillStyle = '#8fd46a';
+            ctx.fillRect(W / 2 - 40, 24, 175 * Math.max(0, k.leben / TK_LEBEN), 10);
+        }
+
+        const TROLL_INFO = {
+            titel: 'Zwischenboss: Der Trollkönig!',
+            unter: 'Halbzeit – 50 Sterne geschafft!',
+            zeilen: ['Er wirft Felsbrocken – weiche aus oder zerzaubere sie.',
+                     'Wenn er stampft, rollt eine Bodenwelle: flieg hoch!',
+                     'Halte den Zauber-Knopf gedrückt und triff ihn!'],
+            boss: true, troll: true
+        };
 
         // ===== EFFEKTE =====
         let partikel = [];
@@ -2210,9 +2730,9 @@
             if (schildAktiv) eintraege.push({ text: 'Schild ' + Math.ceil(schildTimer) + 's', farbe: '#9fd6ff', anteil: schildTimer / SCHILD_DAUER });
             if (komboZaehler >= 3) eintraege.push({ text: 'Kombo x' + komboZaehler, farbe: '#ffe14d', anteil: komboTimer / 1.8 });
             // links neben den runden Knöpfen, damit nichts die Punkteanzeige verdeckt
-            const y0 = bossPhase ? 58 : 14;
+            const y0 = (bossPhase || trollKoenig) ? 58 : 14;
             const b = 112, abstand = 6;
-            let x = bossPhase ? W / 2 - (eintraege.length * b + (eintraege.length - 1) * abstand) / 2 : 110;
+            let x = (bossPhase || trollKoenig) ? W / 2 - (eintraege.length * b + (eintraege.length - 1) * abstand) / 2 : 110;
             for (const e of eintraege) {
                 ctx.fillStyle = 'rgba(14, 12, 34, 0.45)';
                 ctx.beginPath();
@@ -2233,11 +2753,11 @@
 
         function levelInfo(lvl, neueWelt) {
             const texte = {
-                2: ['Neu: Sternen-Magnet! Er zieht Sterne zu dir.', 'Die Wolken kommen jetzt öfter.'],
+                2: ['Neu: Sternen-Magnet! Er zieht Sterne zu dir.', 'Achtung: Die Trolle werfen jetzt Felsbrocken – zerzaubere sie!'],
                 3: ['Achtung, Drachen! Sie fliegen in Wellen auf dich zu.', 'Ein „!“ am rechten Rand warnt dich vorher.'],
                 4: ['Neu: Schutzschild! Er fängt einen Treffer ab.', 'Die Drachen werden schneller.'],
-                5: ['Die Drachen kommen jetzt öfter.', 'Sammle Regenbogen-Sterne und verscheuche sie!'],
-                6: ['Die Drachen werden noch schneller.', 'Bleib in Bewegung!'],
+                5: ['Die Drachen kommen jetzt öfter.', 'Bei 50 Sternen wartet der Trollkönig …'],
+                6: ['Weiter geht die Reise! Die Trolle sind jetzt zäher.', 'Die Drachen werden noch schneller.'],
                 7: ['Ein Gewitter zieht auf – und rote Drachen verfolgen dich!', 'Weiche ihnen geschickt aus.'],
                 8: ['Noch mehr rote Drachen!', 'Kombos geben Extra-Sterne.'],
                 9: ['Fast geschafft!', 'Glühwürmchen leuchten dir den Weg.'],
@@ -2255,8 +2775,8 @@
             titel: 'Finale: Der Drachenkönig!',
             unter: 'Du hast 100 Sterne – jetzt wird es ernst!',
             zeilen: ['Er spuckt Feuerbälle – weiche ihnen aus.',
-                     'Hol dir einen Regenbogen-Stern und flieg in ihn hinein.',
-                     'Drei Treffer, und der Himmel ist gerettet!'],
+                     'Zaubere, was das Zeug hält! Mit Regenbogen-Kraft wird dein Zauber dreifach,',
+                     'und wer dann in ihn hineinfliegt, trifft ihn besonders hart.'],
             boss: true
         };
 
@@ -2280,7 +2800,8 @@
             Klang.spiele('weiter');
             zustand = 'spiel';
             schutzTimer = Math.max(schutzTimer, 1.2);
-            if (levelUpInfo && levelUpInfo.boss) starteBoss();
+            if (levelUpInfo && levelUpInfo.troll) starteTrollKoenig();
+            else if (levelUpInfo && levelUpInfo.boss) starteBoss();
             Klang.musikStart();
         }
 
@@ -2331,6 +2852,7 @@
 
         // ===== ENDBOSS: DRACHENKÖNIG =====
         const BOSS_B = DRACHE_B * 2, BOSS_H = DRACHE_H * 2;
+        const BOSS_LEBEN = 22;
         let bossPhase = false;
         let boss = null;
         let feuerbaelle = [];
@@ -2340,7 +2862,7 @@
             bossPhase = true;
             hindernisse = [];
             drachen.forEach(d => { d.verscheucht = true; d.warnung = 0; });
-            boss = { x: W + 40, y: 140, phase: 0, leben: 3, trefferBlink: 0, feuerTimer: 2.5, besiegt: false, besiegtZeit: 0, drehung: 0 };
+            boss = { x: W + 40, y: 140, phase: 0, leben: BOSS_LEBEN, trefferBlink: 0, feuerTimer: 2.5, besiegt: false, besiegtZeit: 0, drehung: 0 };
             bossKraftTimer = 3;
             wackeln(6, 0.5);
         }
@@ -2400,21 +2922,10 @@
                     einhorn.y + einhorn.height - 4 > b.y + BOSS_H * 0.15;
                 if (trifft && b.trefferBlink <= 0) {
                     if (unverwundbarTimer > 0) {
-                        b.leben--;
-                        b.trefferBlink = 1.3;
-                        unverwundbarTimer = 0;     // Kraft ist verbraucht
-                        b.x += 110;                // zurückgestoßen
-                        wackeln(10, 0.45);
-                        partikelExplosion(b.x + 40, b.y + BOSS_H / 2, 26, ['#ffd34d', '#ffffff', '#ff8ac4', '#7dffe0'], 'stern', 320);
-                        if (b.leben <= 0) {
-                            b.besiegt = true;
-                            feuerbaelle = [];
-                            Klang.spiele('bossBesiegt');
-                            schwebeText(W / 2, 170, 'Der Drachenkönig flieht!', '#ffe14d', 30);
-                        } else {
-                            Klang.spiele('bossTreffer');
-                            schwebeText(b.x + 40, b.y, 'Treffer! Noch ' + b.leben, '#ffe14d', 24);
-                        }
+                        // Mit Regenbogen-Kraft hineinfliegen: großer Treffer, Kraft verbraucht
+                        unverwundbarTimer = 0;
+                        b.x += 110;
+                        drachenKoenigTreffer(4, true);
                     } else if (schutzTimer <= 0) {
                         treffer('boss');
                     }
@@ -2541,6 +3052,24 @@
             for (const f of feuerbaelle) zeichneFeuerball(f);
         }
 
+        function drachenKoenigTreffer(staerke, gross) {
+            const b = boss;
+            b.leben -= staerke;
+            b.trefferBlink = gross ? 1.1 : 0.15;
+            if (gross) {
+                wackeln(10, 0.45);
+                partikelExplosion(b.x + 40, b.y + BOSS_H / 2, 26, ['#ffd34d', '#ffffff', '#ff8ac4', '#7dffe0'], 'stern', 320);
+            }
+            if (b.leben <= 0) {
+                b.besiegt = true;
+                feuerbaelle = [];
+                Klang.spiele('bossBesiegt');
+                schwebeText(W / 2, 170, 'Der Drachenkönig flieht!', '#ffe14d', 30);
+            } else {
+                Klang.spiele(gross ? 'bossTreffer' : 'zauberTreffer');
+            }
+        }
+
         function zeichneBossLeiste() {
             if (!boss || boss.besiegt) return;
             ctx.fillStyle = 'rgba(14, 12, 34, 0.65)';
@@ -2551,10 +3080,10 @@
             ctx.font = '16px Spielschrift, Arial';
             ctx.textAlign = 'left';
             ctx.fillText('Drachenkönig', W / 2 - 115, 36);
-            for (let i = 0; i < 3; i++) {
-                ctx.fillStyle = i < boss.leben ? '#ffd34d' : 'rgba(255, 255, 255, 0.25)';
-                zeichneFunkeln(W / 2 + 40 + i * 30, 30, 5);
-            }
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.fillRect(W / 2 + 10, 24, 105, 10);
+            ctx.fillStyle = '#ff9a4d';
+            ctx.fillRect(W / 2 + 10, 24, 105 * Math.max(0, boss.leben / BOSS_LEBEN), 10);
         }
 
         function resetSpiel() {
@@ -2591,6 +3120,15 @@
             bossPhase = false;
             boss = null;
             feuerbaelle = [];
+            zauberGeschosse = [];
+            zauberAbklingzeit = 0;
+            zauberGedrueckt = false;
+            trolle = [];
+            felsen = [];
+            stosswellen = [];
+            trollTimer = 0;
+            trollKoenig = null;
+            trollKoenigBesiegt = false;
         }
 
         function beendeSpiel(neuerZustand) {
@@ -2650,20 +3188,27 @@
                 schwebeText(einhorn.x + 50, einhorn.y - 15, 'Kombo x' + komboZaehler + '!  +1', '#ffd34d', 24);
             }
 
-            // Level & Finale
-            if (!bossPhase && score >= 100) {
-                if (!levelUpAusstehend) levelUpAusstehend = FINALE_INFO;
+            pruefeFortschritt();
+        }
+
+        // Level-Aufstiege, Zwischenboss und Finale
+        function pruefeFortschritt() {
+            if (bossPhase || trollKoenig || levelUpAusstehend) return;
+            if (score >= 100) {
+                levelUpAusstehend = FINALE_INFO;
                 return;
             }
-            if (!bossPhase) {
-                const neuesLevel = Math.min(10, Math.floor(score / 10) + 1);
-                if (neuesLevel > level) {
-                    const alteWelt = weltFuerLevel(level);
-                    level = neuesLevel;
-                    const neueWelt = weltFuerLevel(level);
-                    levelUpAusstehend = levelInfo(level, neueWelt !== alteWelt ? neueWelt : null);
-                    Klang.spiele('level');
-                }
+            if (score >= 50 && !trollKoenigBesiegt) {
+                levelUpAusstehend = TROLL_INFO;
+                return;
+            }
+            const neuesLevel = Math.min(10, Math.floor(score / 10) + 1);
+            if (neuesLevel > level) {
+                const alteWelt = weltFuerLevel(level);
+                level = neuesLevel;
+                const neueWelt = weltFuerLevel(level);
+                levelUpAusstehend = levelInfo(level, neueWelt !== alteWelt ? neueWelt : null);
+                Klang.spiele('level');
             }
         }
 
@@ -2760,7 +3305,7 @@
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
             ctx.fillText('Version ' + SPIEL_VERSION, W - 10, 18);
             ctx.restore();
-            konturText('Tippen = fliegen  ·  100 Sterne sammeln  ·  dann wartet der Drachenkönig!',
+            konturText('Tippen = fliegen  ·  Zauber-Knopf = zaubern  ·  Trolle, Drachen und zwei Bosse warten!',
                 W / 2, 388, '14px Spielschrift, Arial', '#ffffff', '#1e1638', 4);
         }
 
@@ -2833,6 +3378,7 @@
             ctx.textAlign = 'center';
             ctx.font = '34px Spielschrift, Arial';
             const grundTexte = { drache: 'Oje, ein Drache hat euch erwischt!', wolke: 'Oje, in eine Wolke geflogen!',
+                                 troll: 'Ein Troll hat euch erwischt!', fels: 'Autsch, ein Felsbrocken!', stampf: 'Die Bodenwelle des Trollkönigs!',
                                  feuer: 'Autsch, ein Feuerball!', boss: 'Der Drachenkönig war zu stark!' };
             ctx.fillText(grundTexte[absturzGrund] || grundTexte.wolke, W / 2, 110);
             ctx.font = '20px Arial';
@@ -2884,6 +3430,8 @@
             // Pause-Knopf nur während des Spiels zeigen
             const pauseSichtbar = zustand === 'spiel' ? 'flex' : 'none';
             if (pauseKnopf.style.display !== pauseSichtbar) pauseKnopf.style.display = pauseSichtbar;
+            if (zauberKnopf.style.display !== pauseSichtbar) zauberKnopf.style.display = pauseSichtbar;
+            if (zustand !== 'spiel') zauberGedrueckt = false;
 
             if (zustand === 'pause' || zustand === 'levelup') {
                 if (zustand === 'pause') zeichnePause(); else zeichneLevelUp();
@@ -2894,7 +3442,7 @@
             // Hintergrund scrollt im Spiel normal, in den Menüs gemächlich
             // Welttempo: im Spiel so schnell wie Wolken & Sterne (Vordergrund klebt am Boden),
             // in den Menüs gemütlicher Schritt, sonst Stillstand
-            if (zustand === 'spiel') weltTempo = (140 + level * 25) * (bossPhase ? 0.7 : 1);
+            if (zustand === 'spiel') weltTempo = trollKoenig ? 0 : (140 + level * 25) * (bossPhase ? 0.7 : 1);
             else if (zustand === 'menue' || zustand === 'bestenliste' || zustand === 'tschuess') weltTempo = 45;
             else weltTempo = 0;
             weltPosition += weltTempo * dt;
@@ -2932,41 +3480,24 @@
                 if (einhorn.y < 0) { einhorn.y = 0; einhorn.velocity = 0; }
 
                 sternErzeugungsTimer += dt;
-                if (sternErzeugungsTimer >= (bossPhase ? 2.2 : 1.7)) {
+                if (!trollKoenig && sternErzeugungsTimer >= (bossPhase ? 2.2 : 1.7)) {
                     erstelleStern();
                     sternErzeugungsTimer = 0;
                 }
 
-                if (!bossPhase) {
-                    hindernisErzeugungsTimer += dt;
-                    const takt = Math.max(1.1, 2.8 - (level * 0.2));
-                    if (hindernisErzeugungsTimer >= takt) {
-                        erstelleHindernis();
-                        hindernisErzeugungsTimer = 0;
-                    }
-                }
 
                 zeichneBodenschatten(einhorn.x + 35, einhorn.y + einhorn.height);
 
-                for (let i = hindernisse.length - 1; i >= 0; i--) {
-                    const w = hindernisse[i];
-                    w.x -= (w.baseSpeed + level * 25) * dt;
-                    zeichneFiligraneWolke(w.x, w.y, w.width, w.height);
-                    if (einhorn.x < w.x + w.width * 0.85 &&
-                        einhorn.x + einhorn.width > w.x + w.width * 0.15 &&
-                        einhorn.y < w.y + w.height * 0.85 &&
-                        einhorn.y + einhorn.height > w.y + w.height * 0.15
-                    ) {
-                        if (unverwundbarTimer <= 0 && schutzTimer <= 0 && zustand === 'spiel') {
-                            treffer('wolke');
-                        }
-                    }
-                    if (w.x < -w.width) hindernisse.splice(i, 1);
-                }
-
+                aktualisiereTrolle();
+                aktualisiereTrollKoenig();
+                aktualisiereStosswellen();
+                zeichneTrollKoenig();
+                zeichneTrolle();
                 aktualisiereDrachen();
                 aktualisiereBoss();
                 zeichneBoss();
+                aktualisiereZauber();
+                zeichneZauber();
 
                 // Sammelobjekte
                 const gx = einhorn.x + 35, gy = einhorn.y + 25;
@@ -2980,7 +3511,7 @@
                             st.y += dy / d * 520 * dt;
                         }
                     }
-                    st.x -= (st.baseSpeed + level * 25) * dt;
+                    st.x -= (trollKoenig ? 70 : st.baseSpeed + level * 25) * dt;
                     zeichneSammelobjekt(st);
 
                     const getroffen =
@@ -3028,11 +3559,12 @@
                 ctx.textAlign = 'left';
                 ctx.font = '18px Spielschrift, Arial';
                 ctx.fillText('★ Sterne: ' + score + (bossPhase ? '' : ' / 100'), W - 188, 32);
-                ctx.fillText(bossPhase ? 'Finale' : 'Level: ' + level, W - 188, 56);
+                ctx.fillText(bossPhase ? 'Finale' : (trollKoenig ? 'Boss' : 'Level: ' + level), W - 188, 56);
                 for (let h = 0; h < MAX_HERZEN; h++) {
                     zeichneHerz(W - 78 + h * 24, 50, 18, h < herzen);
                 }
                 zeichneBossLeiste();
+                zeichneTrollKoenigLeiste();
                 zeichnePowerUpLeiste();
 
                 // Level-Aufstieg erst am Ende des Bildes zeigen, damit das Standbild vollständig ist
