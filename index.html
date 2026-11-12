@@ -103,7 +103,7 @@
         const ctx = canvas.getContext('2d');
 
         // Bei jeder Änderung hochzählen – steht klein unten rechts im Hauptmenü
-        const SPIEL_VERSION = '1.9 (Parallax)';
+        const SPIEL_VERSION = '2.1 (Gewitter & Drachen)';
 
         // Ältere Browser (z. B. Firefox auf Fire-Tablets) kennen roundRect noch nicht.
         // Ohne diese Ergänzung bricht das Zeichnen der Knöpfe ab.
@@ -162,6 +162,8 @@
 
         // Zeit für die Hintergrund-Animation (Parallax)
         let hintergrundZeit = 0;
+        // Höhe, auf der Glacier am Boden galoppiert (Unterkante der Hufe)
+        const BODEN_Y = H - 24;
 
         const einhorn = {
             x: 70,
@@ -257,6 +259,7 @@
                 schild:   n => [392, 523, 659, 784].forEach((f, i) => ton(f, n + i * 0.04, 0.35, 'sine', 0.14)),
                 schildWeg: n => { ton(1200, n, 0.25, 'triangle', 0.15, 300); ton(800, n + 0.05, 0.2, 'square', 0.04, 200); },
                 feuer:    n => ton(180, n, 0.35, 'sawtooth', 0.09, 70),
+                donner:   n => { ton(70, n + 0.15, 1.2, 'sawtooth', 0.08, 35); ton(52, n + 0.25, 1.4, 'triangle', 0.14, 30); },
                 bossTreffer: n => { ton(150, n, 0.5, 'square', 0.12, 50); [880, 1175].forEach((f, i) => ton(f, n + 0.1 + i * 0.08, 0.2, 'triangle', 0.15)); },
                 bossBesiegt: n => [392, 494, 587, 784, 988, 1175, 1568].forEach((f, i) => ton(f, n + i * 0.09, 0.3, 'square', 0.07)),
                 weiter:   n => { ton(659, n, 0.1, 'triangle', 0.15); ton(988, n + 0.08, 0.18, 'triangle', 0.15); },
@@ -576,32 +579,47 @@
         // fester Bildschirmposition, die Welt bewegt sich (zeitbasiert über dt).
         // Liegen Bilddateien (bg_*.png) neben der index.html, werden sie genutzt,
         // sonst zeichnet der Code die Landschaft selbst. Weitere Ebenen lassen sich
-        // einfach in PARALLAX_EBENEN ergänzen.
+        // einfach in ebenenSatz() bzw. LANDSCHAFTEN ergänzen.
         let weltPosition = 0;   // zurückgelegte Strecke der vordersten Ebene (Pixel)
         let weltTempo = 0;      // aktuelle Geschwindigkeit (Pixel pro Sekunde)
 
-        // Färbung der Bild-Ebenen je Tageszeit (Multiplizieren); null = unverändert
-        const WELT_TOENUNG = ['#ffd9cc', null, '#fff0cc', '#ff9f85', '#4a58a6'];
-
-        const PARALLAX_EBENEN = [
-            { name: 'himmel', datei: 'bg_sky.png',        faktor: 0.03, ersatz: ersatzHimmel },
-            { name: 'berge',  datei: 'bg_mountains.png',  faktor: 0.15, ersatz: ersatzBerge },
-            { name: 'mitte',  datei: 'bg_midground.png',  faktor: 0.35, ersatz: ersatzMitte },
-            { name: 'vorne',  datei: 'bg_foreground.png', faktor: 1.0,  ersatz: ersatzVorne }
-        ];
-        PARALLAX_EBENEN.forEach(e => {
+        // Mehrere Landschaften, jeweils mit eigenen Ebenen und eigener Tönung je Tageszeit.
+        // y/hoehe: Band auf dem Spielfeld, in dem das Bild gezeichnet wird (unverzerrt).
+        function ebenenSatz(praefix) {
+            return [
+                { name: 'himmel', datei: praefix + '_sky.png',        faktor: 0.03, y: 0,   hoehe: 400, ersatz: ersatzHimmel },
+                { name: 'berge',  datei: praefix + '_mountains.png',  faktor: 0.15, y: 55,  hoehe: 190, ersatz: ersatzBerge },
+                { name: 'mitte',  datei: praefix + '_midground.png',  faktor: 0.35, y: 150, hoehe: 215, ersatz: ersatzMitte },
+                { name: 'vorne',  datei: praefix + '_foreground.png', faktor: 1.0,  y: 300, hoehe: 100, ersatz: ersatzVorne }
+            ];
+        }
+        const LANDSCHAFTEN = {
+            // sonnige Welt: Level 1–6 und Menüs
+            sonnig:   { ebenen: ebenenSatz('bg'), toenung: ['#ffd9cc', null, '#fff0cc', '#ff9f85', '#4a58a6'], himmelskoerper: true,  wetter: false },
+            // Gewitter: ab Level 7 und im Bosskampf
+            gewitter: { ebenen: ebenenSatz('gw'), toenung: [null, null, null, null, '#a9b0e6'],             himmelskoerper: false, wetter: true }
+        };
+        Object.values(LANDSCHAFTEN).forEach(l => l.ebenen.forEach(e => {
             e.bereit = false;
             e.getoent = {};
+            e.landschaft = l;
             e.bild = new Image();
             e.bild.onload = () => { e.bereit = true; e.getoent = {}; };
             e.bild.onerror = () => { e.bereit = false; };   // Datei fehlt -> Code-Zeichnung
             if (location.protocol.startsWith('http')) e.bild.src = e.datei;
-        });
-        const bildEbene = name => PARALLAX_EBENEN.find(e => e.name === name);
+        }));
+
+        function aktuelleLandschaft() {
+            const imSpiel = ['spiel', 'pause', 'levelup', 'gameover', 'sieg'].includes(zustand);
+            const gw = LANDSCHAFTEN.gewitter;
+            if (imSpiel && (level >= 7 || bossPhase) && gw.ebenen.every(e => e.bereit)) return gw;
+            return LANDSCHAFTEN.sonnig;
+        }
+        const bildEbene = name => aktuelleLandschaft().ebenen.find(e => e.name === name);
 
         // Getönte Kopie einer Ebene für eine Tageszeit (wird zwischengespeichert)
         function getoenteEbene(e, weltIndex) {
-            const farbe = WELT_TOENUNG[weltIndex];
+            const farbe = e.landschaft.toenung[weltIndex];
             if (!farbe) return e.bild;
             if (!e.getoent[weltIndex]) {
                 const c = document.createElement('canvas');
@@ -620,13 +638,12 @@
         }
 
         // Eine Bild-Ebene nahtlos kacheln: so viele Kopien nebeneinander wie nötig
-        function kachleEbene(bild, versatz, alpha) {
-            const h = H;
+        function kachleEbene(bild, versatz, alpha, y, h) {
             const b = bild.width * h / bild.height;   // Seitenverhältnis bleibt erhalten
             let x = -schleife(versatz, b);
             ctx.globalAlpha = alpha;
             while (x < W) {
-                ctx.drawImage(bild, x, 0, b + 1, h);  // +1 gegen Haarlinien an den Nähten
+                ctx.drawImage(bild, x, y, b + 1, h);  // +1 gegen Haarlinien an den Nähten
                 x += b;
             }
             ctx.globalAlpha = 1;
@@ -636,8 +653,9 @@
             const i = Math.floor(weltAnzeige);
             const j = Math.min(WELTEN.length - 1, i + 1);
             const t = weltAnzeige - i;
-            kachleEbene(getoenteEbene(e, i), versatz, 1);
-            if (t > 0.01) kachleEbene(getoenteEbene(e, j), versatz, t);
+            const y = e.y || 0, h = e.hoehe || H;
+            kachleEbene(getoenteEbene(e, i), versatz, 1, y, h);
+            if (t > 0.01) kachleEbene(getoenteEbene(e, j), versatz, t, y, h);
         }
 
         // --- Ersatz-Zeichnungen (falls keine Bilddateien vorhanden) ---
@@ -711,16 +729,78 @@
             }
         }
 
+        // ===== WETTER (Regen & Blitze im Gewitter) =====
+        const regenTropfen = Array.from({ length: 70 }, () => ({
+            x: Math.random() * W, y: Math.random() * H, l: 10 + Math.random() * 12, v: 520 + Math.random() * 260
+        }));
+        let blitzWartezeit = 4, himmelsBlitz = 0, blitzPfad = null;
+
+        function zeichneWetter() {
+            const laeuft = zustand === 'spiel';
+            // Regen
+            ctx.save();
+            ctx.strokeStyle = 'rgba(200, 210, 255, 0.35)';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            for (const r of regenTropfen) {
+                if (laeuft) {
+                    r.y += r.v * dt;
+                    r.x -= (r.v * 0.25 + weltTempo * 0.3) * dt;
+                    if (r.y > H) { r.y = -r.l; r.x = Math.random() * (W + 100); }
+                    if (r.x < -20) r.x += W + 40;
+                }
+                ctx.moveTo(r.x, r.y);
+                ctx.lineTo(r.x - r.l * 0.25, r.y + r.l);
+            }
+            ctx.stroke();
+            ctx.restore();
+
+            // Blitze
+            if (laeuft) {
+                blitzWartezeit -= dt;
+                if (blitzWartezeit <= 0) {
+                    blitzWartezeit = 4 + Math.random() * 5;
+                    himmelsBlitz = 0.35;
+                    const bx = 150 + Math.random() * 550;
+                    blitzPfad = [[bx, 0]];
+                    let x = bx, y = 0;
+                    while (y < 170) { y += 18 + Math.random() * 16; x += (Math.random() - 0.5) * 40; blitzPfad.push([x, y]); }
+                    Klang.spiele('donner');
+                }
+            }
+            if (himmelsBlitz > 0) {
+                ctx.fillStyle = `rgba(230, 235, 255, ${himmelsBlitz * 1.2})`;
+                ctx.fillRect(0, 0, W, H);
+                if (blitzPfad && himmelsBlitz > 0.18) {
+                    ctx.save();
+                    ctx.strokeStyle = '#f4f2ff';
+                    ctx.lineWidth = 3;
+                    ctx.shadowColor = '#b9b4ff';
+                    ctx.shadowBlur = 12;
+                    ctx.beginPath();
+                    blitzPfad.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+                    ctx.stroke();
+                    ctx.restore();
+                }
+                if (laeuft) himmelsBlitz -= dt;
+            }
+        }
+
         function zeichneHintergrund() {
             const p = aktuellePalette();
-            for (const e of PARALLAX_EBENEN) {
+            const l = aktuelleLandschaft();
+            for (const e of l.ebenen) {
                 const versatz = weltPosition * e.faktor;
                 if (e.bereit) zeichneBildEbene(e, versatz);
                 else e.ersatz(p, versatz);
                 if (e.name === 'himmel') {
-                    zeichneHimmelskoerper(p);
+                    if (l.himmelskoerper) zeichneHimmelskoerper(p);
                     if (!e.bereit) zeichneWolkenSchicht(p, versatz);
                 }
+            }
+            if (l.wetter) {
+                zeichneWetter();
+                return;   // im Gewitter keine Glühwürmchen
             }
 
             // Glühwürmchen in der Nacht
@@ -741,7 +821,7 @@
         // Bodenhöhe der vordersten Ebene an Position x (für den Schatten)
         function bodenHoehe(x) {
             const vorne = bildEbene('vorne');
-            if (vorne && vorne.bereit) return H - 14;
+            if (vorne && vorne.bereit) return BODEN_Y + 6;
             return huegelHoehe(x + weltPosition, 355, 10, 70) + 10;
         }
 
@@ -1075,7 +1155,7 @@
         let staubTimer = 0;
 
         function glacierAmBoden() {
-            return zustand === 'spiel' && einhorn.y + einhorn.height >= H - 0.5 && einhorn.velocity === 0;
+            return zustand === 'spiel' && einhorn.y + einhorn.height >= BODEN_Y - 0.5 && einhorn.velocity === 0;
         }
 
         function zeichneGlacierBild(x, y) {
@@ -1419,37 +1499,35 @@
                 ctx.stroke();
             }
 
-            // Außenkontur: erst dick umranden, dann füllen -> nur der Rand bleibt sichtbar
+            // Dunkle Gewitterwolke mit Volumen: Rand, dunkle Unterseite, helle Oberkante
             wolkenPfad();
-            ctx.strokeStyle = '#7a2f6e';
-            ctx.lineWidth = 5;
+            ctx.strokeStyle = 'rgba(30, 30, 50, 0.55)';
+            ctx.lineWidth = 3;
             ctx.stroke();
-            ctx.fillStyle = '#d46fb4';
+            const koerper = ctx.createLinearGradient(0, y, 0, y + height);
+            koerper.addColorStop(0, '#9da2bf');
+            koerper.addColorStop(0.55, '#6b6f8f');
+            koerper.addColorStop(1, '#3e4160');
+            ctx.fillStyle = koerper;
             ctx.fill();
-
-            // hellere Oberseite
-            ctx.fillStyle = '#ec9fd2';
+            // Lichtsaum oben
+            ctx.save();
+            ctx.globalAlpha = 0.55;
+            ctx.fillStyle = '#d3d6e8';
             ctx.beginPath();
-            ctx.ellipse(x + width * 0.45, y + height * 0.32, r * 0.8, r * 0.45, 0, 0, Math.PI * 2);
+            ctx.ellipse(x + width * 0.42, y + height * 0.3, r * 0.75, r * 0.32, -0.15, 0, Math.PI * 2);
             ctx.fill();
-
-            // grimmiges Gesicht
-            const gx = x + width * 0.5, gy = y + height * 0.55;
-            ctx.strokeStyle = '#5a1f52';
-            ctx.lineWidth = 2.5;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(gx - 15, gy - 7); ctx.lineTo(gx - 6, gy - 3);
-            ctx.moveTo(gx + 15, gy - 7); ctx.lineTo(gx + 6, gy - 3);
-            ctx.stroke();
-            ctx.fillStyle = '#5a1f52';
-            ctx.beginPath();
-            ctx.arc(gx - 9, gy + 2, 2.5, 0, Math.PI * 2);
-            ctx.arc(gx + 9, gy + 2, 2.5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(gx, gy + 14, 5, Math.PI * 1.15, Math.PI * 1.85);
-            ctx.stroke();
+            ctx.restore();
+            // Leuchten im Inneren, wenn es blitzt
+            if (Math.floor(spielRahmen / 8 + x / 50) % 5 === 0) {
+                const glut = ctx.createRadialGradient(x + width * 0.5, y + height * 0.6, 2, x + width * 0.5, y + height * 0.6, r * 1.2);
+                glut.addColorStop(0, 'rgba(255, 245, 190, 0.55)');
+                glut.addColorStop(1, 'rgba(255, 245, 190, 0)');
+                ctx.fillStyle = glut;
+                ctx.beginPath();
+                ctx.arc(x + width * 0.5, y + height * 0.6, r * 1.2, 0, Math.PI * 2);
+                ctx.fill();
+            }
             ctx.restore();
         }
 
@@ -1634,7 +1712,77 @@
             ctx.restore();
         }
 
+        // ===== DRACHEN ALS BILDER =====
+        // Alle Posen liegen in einer Bilddatei (drachen.png). Daraus entstehen beim Laden
+        // drei Farbvarianten: türkis (normale Drachen), rot (Verfolger), lila (Drachenkönig).
+        const DRACHEN_TEILE = {"oben": [0, 0, 211, 150], "unten": [215, 0, 232, 145], "idle": [451, 0, 224, 151], "angriff": [679, 0, 225, 165], "feuer": [0, 169, 312, 163], "getroffen": [316, 169, 198, 171], "f1": [518, 169, 112, 44], "f2": [634, 169, 114, 54], "f3": [752, 169, 154, 64]};
+        // Kopfposition je Pose (Anteil von Breite/Höhe im Originalbild, Blick nach rechts)
+        const DRACHEN_KOPF = { oben: [0.9, 0.36], unten: [0.95, 0.33], idle: [0.92, 0.33], angriff: [0.93, 0.47], feuer: [0.68, 0.45], getroffen: [0.93, 0.5] };
+        const DRACHE_MASSSTAB = 100 / 211;
+        const drachenAtlas = { bild: new Image(), bereit: false, v: {} };
+        drachenAtlas.bild.onload = () => {
+            const farben = { rot: null, tuerkis: '#1fb3a6', lila: '#8a4be0' };
+            for (const [variante, farbe] of Object.entries(farben)) {
+                drachenAtlas.v[variante] = {};
+                for (const [name, [x, y, b, h]] of Object.entries(DRACHEN_TEILE)) {
+                    if (name[0] === 'f' && name.length === 2 && variante !== 'rot') continue;   // Feuer nur einmal
+                    const c = document.createElement('canvas');
+                    c.width = b; c.height = h;
+                    const g = c.getContext('2d');
+                    g.drawImage(drachenAtlas.bild, x, y, b, h, 0, 0, b, h);
+                    if (farbe) {
+                        g.globalCompositeOperation = 'hue';
+                        g.fillStyle = farbe;
+                        g.fillRect(0, 0, b, h);
+                        if (variante === 'lila') {
+                            g.globalCompositeOperation = 'multiply';
+                            g.fillStyle = '#c9b8e8';
+                            g.fillRect(0, 0, b, h);
+                        }
+                        g.globalCompositeOperation = 'destination-in';
+                        g.drawImage(drachenAtlas.bild, x, y, b, h, 0, 0, b, h);
+                        if (name === 'feuer') {
+                            // Feueratem rechts vom Maul in Originalfarbe zurückholen
+                            const ab = Math.round(b * 0.7);
+                            g.globalCompositeOperation = 'source-over';
+                            g.clearRect(ab, 0, b - ab, h);
+                            g.drawImage(drachenAtlas.bild, x + ab, y, b - ab, h, ab, 0, b - ab, h);
+                        }
+                    }
+                    drachenAtlas.v[variante][name] = c;
+                }
+            }
+            drachenAtlas.bereit = true;
+        };
+        if (location.protocol.startsWith('http')) drachenAtlas.bild.src = 'drachen.png';
+
+        const FLUG_ZYKLUS = ['oben', 'idle', 'unten', 'idle'];
+        function flugPose(phase) {
+            return FLUG_ZYKLUS[Math.floor(Math.abs(spielRahmen / 6 + phase * 3)) % 4];
+        }
+
+        // Zeichnet eine Drachen-Pose gespiegelt (Blick nach links), zentriert auf (cx, cy)
+        function zeichneDrachenPose(variante, pose, cx, cy, massstab, drehung) {
+            const bild = drachenAtlas.v[variante][pose];
+            const b = bild.width * massstab, h = bild.height * massstab;
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(drehung || 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(bild, -b / 2, -h * 0.55, b, h);
+            ctx.restore();
+            // Kopfposition (gespiegelt) zurückgeben, z. B. für Krone oder Feuer
+            const k = DRACHEN_KOPF[pose] || [0.9, 0.35];
+            return { x: cx - (k[0] - 0.5) * b, y: cy - h * 0.55 + k[1] * h, b: b, h: h };
+        }
+
         function zeichneDrache(d) {
+            if (drachenAtlas.bereit && !d.boss) {
+                const pose = d.verscheucht ? 'getroffen' : flugPose(d.phase);
+                zeichneDrachenPose(d.verfolgt ? 'rot' : 'tuerkis', pose,
+                    d.x + DRACHE_B / 2, d.y + DRACHE_H / 2, DRACHE_MASSSTAB, d.drehung);
+                return;
+            }
             const t = spielRahmen / 60;
             const umriss = d.boss ? '#4b2a7a' : (d.verfolgt ? '#7a2b2b' : '#2f7a50');
             const koerper = d.boss ? '#a77be6' : (d.verfolgt ? '#ff7d6b' : '#5cc98a');
@@ -2039,14 +2187,14 @@
                 4: ['Neu: Schutzschild! Er fängt einen Treffer ab.', 'Die Drachen werden schneller.'],
                 5: ['Die Drachen kommen jetzt öfter.', 'Sammle Regenbogen-Sterne und verscheuche sie!'],
                 6: ['Die Drachen werden noch schneller.', 'Bleib in Bewegung!'],
-                7: ['Rote Drachen verfolgen dich!', 'Weiche ihnen geschickt aus.'],
+                7: ['Ein Gewitter zieht auf – und rote Drachen verfolgen dich!', 'Weiche ihnen geschickt aus.'],
                 8: ['Noch mehr rote Drachen!', 'Kombos geben Extra-Sterne.'],
                 9: ['Fast geschafft!', 'Glühwürmchen leuchten dir den Weg.'],
                 10: ['Letztes Level!', 'Noch ein paar Sterne bis zum Drachenkönig …']
             };
             return {
                 titel: 'Level ' + lvl + ' erreicht!',
-                unter: neueWelt !== null ? 'Es wird ' + WELTEN[neueWelt].name : '',
+                unter: lvl === 7 ? 'Es wird stürmisch …' : (neueWelt !== null ? 'Es wird ' + WELTEN[neueWelt].name : ''),
                 zeilen: texte[lvl] || [],
                 boss: false
             };
@@ -2150,6 +2298,7 @@
             if (!boss) return;
             const b = boss;
             if (b.trefferBlink > 0) b.trefferBlink -= dt;
+            if (b.feuerAnim > 0) b.feuerAnim -= dt;
 
             if (b.besiegt) {
                 b.besiegtZeit += dt;
@@ -2172,7 +2321,8 @@
                 // Feuerbälle auf Glacier
                 b.feuerTimer -= dt;
                 if (b.feuerTimer <= 0 && b.x < W - 120) {
-                    const fx = b.x + 8, fy = b.y + 50;
+                    const fx = b.maul ? b.maul.x : b.x + 8, fy = b.maul ? b.maul.y : b.y + 50;
+                    b.feuerAnim = 0.5;
                     const vx = -(270 + wut * 45);
                     const flugzeit = (fx - (einhorn.x + 35)) / -vx;
                     let vy = ((einhorn.y + 25) - fy) / Math.max(0.3, flugzeit);
@@ -2181,6 +2331,7 @@
                     if (wut >= 2) feuerbaelle.push({ x: fx, y: fy, vx: vx, vy: vy + 110, r: 11 });
                     Klang.spiele('feuer');
                     b.feuerTimer = 2.3 - wut * 0.5;
+                    b.feuerTimer = Math.max(b.feuerTimer, 1.0);
                 }
 
                 // Regenbogen-Stern garantiert regelmäßig nachliefern
@@ -2243,9 +2394,73 @@
             }
         }
 
+        function bossPose(b) {
+            if (b.besiegt || b.trefferBlink > 0) return 'getroffen';
+            if (b.feuerAnim > 0) return 'feuer';
+            if (b.feuerTimer < 0.7) return 'angriff';
+            return FLUG_ZYKLUS[Math.floor(spielRahmen / 9) % 4];
+        }
+        const BOSS_MASSSTAB = 235 / 211;
+
+        function zeichneKrone(x, y, groesse) {
+            ctx.save();
+            ctx.translate(x, y);
+            const s = groesse / 24;
+            ctx.scale(s, s);
+            const g = ctx.createLinearGradient(0, -12, 0, 8);
+            g.addColorStop(0, '#fff2b0');
+            g.addColorStop(0.5, '#f2c23c');
+            g.addColorStop(1, '#a8720e');
+            ctx.fillStyle = g;
+            ctx.strokeStyle = '#6e4a08';
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(-12, 8); ctx.lineTo(-13, -6); ctx.lineTo(-6, 0); ctx.lineTo(0, -11);
+            ctx.lineTo(6, 0); ctx.lineTo(13, -6); ctx.lineTo(12, 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#e8304f';
+            ctx.beginPath(); ctx.arc(0, 3, 2.2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#3fb8ff';
+            ctx.beginPath(); ctx.arc(-7, 4, 1.5, 0, Math.PI * 2); ctx.arc(7, 4, 1.5, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+        }
+
+        function zeichneFeuerball(f) {
+            if (drachenAtlas.bereit) {
+                const bild = drachenAtlas.v.rot[Math.floor(spielRahmen / 4) % 2 ? 'f3' : 'f2'];
+                const b = 64, h = b * bild.height / bild.width;
+                ctx.save();
+                ctx.translate(f.x, f.y);
+                ctx.rotate(Math.atan2(f.vy, f.vx));
+                ctx.drawImage(bild, -b * 0.82, -h / 2, b, h);
+                ctx.restore();
+                return;
+            }
+            const g = ctx.createRadialGradient(f.x - 3, f.y - 3, 1, f.x, f.y, f.r * 1.4);
+            g.addColorStop(0, '#fff6b0');
+            g.addColorStop(0.45, '#ffb347');
+            g.addColorStop(1, 'rgba(255, 70, 40, 0)');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(f.x, f.y, f.r * 1.4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
         function zeichneBoss() {
             if (!boss) return;
             const b = boss;
+            if (drachenAtlas.bereit) {
+                ctx.save();
+                if (b.trefferBlink > 0 && Math.floor(spielRahmen / 4) % 2 === 0) ctx.globalAlpha = 0.45;
+                const kopf = zeichneDrachenPose('lila', bossPose(b), b.x + BOSS_B / 2, b.y + BOSS_H / 2, BOSS_MASSSTAB, b.drehung);
+                if (!b.besiegt) zeichneKrone(kopf.x + 4, kopf.y - kopf.h * 0.12, 30);
+                ctx.restore();
+                b.maul = { x: kopf.x - 14, y: kopf.y + 6 };
+                for (const f of feuerbaelle) zeichneFeuerball(f);
+                return;
+            }
             ctx.save();
             if (b.trefferBlink > 0 && Math.floor(spielRahmen / 4) % 2 === 0) ctx.globalAlpha = 0.4;
             ctx.translate(b.x + BOSS_B / 2, b.y + BOSS_H / 2);
@@ -2272,16 +2487,7 @@
             glanzlicht(14, 1, 1.2, 0.6, -0.5, 0.9);
             ctx.restore();
 
-            for (const f of feuerbaelle) {
-                const g = ctx.createRadialGradient(f.x - 3, f.y - 3, 1, f.x, f.y, f.r * 1.4);
-                g.addColorStop(0, '#fff6b0');
-                g.addColorStop(0.45, '#ffb347');
-                g.addColorStop(1, 'rgba(255, 70, 40, 0)');
-                ctx.fillStyle = g;
-                ctx.beginPath();
-                ctx.arc(f.x, f.y, f.r * 1.4, 0, Math.PI * 2);
-                ctx.fill();
-            }
+            for (const f of feuerbaelle) zeichneFeuerball(f);
         }
 
         function zeichneBossLeiste() {
@@ -2671,7 +2877,7 @@
                 spielZeit += dt;
                 einhorn.velocity += einhorn.gravity * dt;
                 einhorn.y += einhorn.velocity * dt;
-                if (einhorn.y + einhorn.height > H) { einhorn.y = H - einhorn.height; einhorn.velocity = 0; }
+                if (einhorn.y + einhorn.height > BODEN_Y) { einhorn.y = BODEN_Y - einhorn.height; einhorn.velocity = 0; }
                 if (einhorn.y < 0) { einhorn.y = 0; einhorn.velocity = 0; }
 
                 sternErzeugungsTimer += dt;
