@@ -1,7 +1,7 @@
 // Offline-Speicher für "Johanni und Glacier".
 // Mit Internet wird das Spiel immer frisch vom Server geladen (Updates sind
 // sofort da). Ohne Internet startet es aus dem Speicher.
-const CACHE = 'glacier-v2';
+const CACHE = 'glacier-v3';
 const DATEIEN = [
   './',
   './index.html',
